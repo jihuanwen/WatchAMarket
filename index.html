@@ -323,9 +323,53 @@
   .fb-out { color: #34d399 !important; background: rgba(52,211,153,.12) !important; border-color: rgba(52,211,153,.4) !important; }
   .fb-ratio { font-size: 10px; color: var(--tx3); }
   .secsub .vd { font-size: 10px; color: var(--tx3); font-weight: 400; }
+  /* ===== 账号登录遮罩 ===== */
+  #authMask {
+    position: fixed; inset: 0; z-index: 999; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; overflow-y: auto;
+  }
+  #authMask.gone { display: none; }
+  .au-box { width: 100%; max-width: 320px; margin: auto; }
+  .au-logo { font-size: 22px; font-weight: 600; text-align: center; }
+  .au-sub { font-size: 12px; color: var(--tx3); text-align: center; margin: 6px 0 22px; }
+  .au-in {
+    width: 100%; height: 44px; border: 1px solid var(--line); background: var(--card);
+    color: var(--tx); border-radius: 10px; padding: 0 12px; font-size: 15px;
+    margin-bottom: 10px; outline: none; -webkit-appearance: none;
+  }
+  .au-in:focus { border-color: #4a90d9; }
+  .au-btn {
+    width: 100%; height: 44px; border: 0; border-radius: 10px; background: #2f6fd0;
+    color: #fff; font-size: 15px; font-weight: 500; margin-top: 4px;
+  }
+  .au-btn:active { opacity: .75; }
+  .au-btn.gray {
+    background: var(--card); color: var(--tx2);
+    border: 1px solid var(--line); margin-top: 10px;
+  }
+  .au-msg { font-size: 12px; color: var(--up); text-align: center; margin-top: 12px; min-height: 16px; }
+  .au-link { font-size: 12px; color: var(--tx3); text-align: center; margin-top: 14px; }
+  .au-link span { color: #4a90d9; }
+  .au-set { font-size: 11px; color: var(--tx3); text-align: center; margin-top: 16px; line-height: 1.7; word-break: break-all; }
 </style>
 </head>
 <body>
+
+<!-- 账号登录遮罩：仅当配置了 CloudBase 环境 ID 且未登录时出现 -->
+<div id="authMask" class="gone">
+  <div class="au-box">
+    <div class="au-logo">持仓看板</div>
+    <div class="au-sub">登录后多设备同步持仓与关键位</div>
+    <input class="au-in" id="auUser" type="text" placeholder="用户名" autocomplete="username">
+    <input class="au-in" id="auPass" type="password" placeholder="密码（至少 8 位）" autocomplete="current-password">
+    <button class="au-btn" id="auGo">登录 / 注册</button>
+    <button class="au-btn gray" id="auSkip">暂不登录，仅本机使用</button>
+    <div class="au-msg" id="auMsg"></div>
+    <div class="au-link"><span id="auSet">配置环境 ID</span></div>
+    <div class="au-set" id="auSetInfo"></div>
+  </div>
+</div>
 
 <div class="top">
   <div class="wrap topin">
@@ -646,6 +690,7 @@ function loadStocks() {
 }
 function saveStocks() {
   try { localStorage.setItem('board_stocks', JSON.stringify(STOCKS)); } catch (e) {}
+  try { if (typeof cbPush === 'function') cbPush(); } catch (e) {}
 }
 function removeStock(code) {
   STOCKS = STOCKS.filter(function (x) { return x.code !== code; });
@@ -654,6 +699,7 @@ function removeStock(code) {
   try {
     localStorage.setItem('board_cost', JSON.stringify(COST));
     localStorage.setItem('board_keys', JSON.stringify(USER_KEYS));
+    if (typeof cbPush === 'function') cbPush();
   } catch (e) {}
   load();
 }
@@ -2272,6 +2318,7 @@ document.getElementById('mB').onclick = function () { setModel('B'); };
 function setModel(m) {
   WINRATE_MODEL = m;
   try { localStorage.setItem('board_winrate_model', m); } catch (e) {}
+  try { if (typeof cbPush === 'function') cbPush(); } catch (e) {}
   renderModelSel();
 }
 function renderModelSel() {
@@ -2296,6 +2343,7 @@ document.getElementById('cSave').onclick = function () {
   try {
     localStorage.setItem('board_cost', JSON.stringify(COST));
     localStorage.setItem('board_keys', JSON.stringify(USER_KEYS));
+    if (typeof cbPush === 'function') cbPush();
   } catch (e) {}
   mask.className = 'mask';
   render();
@@ -2478,12 +2526,23 @@ for (var gi = 0; gi < grpHeads.length; gi++) {
   })(grpHeads[gi]);
 }
 
-load();
-loadKeys();
-schedule();
-scheduleSectors();
-scheduleKeys();
-renderVerBadge();   // 标题旁版本徽章（首屏即显示）
+/* CloudBase 运行时状态。★ 必须声明在 startAuth() 调用之前：
+   startAuth 在下方同步执行，若 CB 声明在其后，会因 var 提升而拿到 undefined 报错。 */
+var CB = { app: null, db: null, uid: null, enabled: false, timer: null, pushing: false };
+
+/* 启动看板：账号流程就绪后调用（未配置 CloudBase 时会立即调用） */
+function bootBoard() {
+  load();
+  loadKeys();
+  schedule();
+  scheduleSectors();
+  scheduleKeys();
+  renderVerBadge();   // 标题旁版本徽章（首屏即显示）
+}
+
+/* 先走账号体系：有环境 ID 才显示登录页，否则直接以纯本地模式启动 */
+startAuth(bootBoard);
+
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden && isTrading()) { load(); loadKeys(); schedule(); scheduleSectors(); scheduleKeys(); }
 });
@@ -2500,6 +2559,160 @@ if ('serviceWorker' in navigator) {
       });
       reg.update();
     }).catch(function () {});
+  });
+}
+
+/* ================= 账号体系 · CloudBase（可选功能） =================
+   设计红线：SDK 加载失败 / 环境 ID 填错 / 网络超时 / 数据库报错 —— 任何一步出问题
+   都降级为「纯本地模式」照常启动看板，绝不允许阻塞启动造成白屏。
+   同步内容：board_stocks（持仓）、board_cost（成本价）、board_keys（关键位）、
+             board_winrate_model（模型 A/B）                                  */
+function cbEnv() { try { return localStorage.getItem('board_cb_env') || ''; } catch (e) { return ''; } }
+function cbSetEnv(v) { try { localStorage.setItem('board_cb_env', String(v || '').trim()); } catch (e) {} }
+function cbSyncAt(v) {
+  try {
+    if (v === undefined) return parseInt(localStorage.getItem('board_sync_at') || '0', 10) || 0;
+    localStorage.setItem('board_sync_at', String(v));
+  } catch (e) { return 0; }
+}
+function cbMask() { return document.getElementById('authMask'); }
+function cbHide() { var m = cbMask(); if (m) m.classList.add('gone'); }
+function cbShow() { var m = cbMask(); if (m) m.classList.remove('gone'); }
+
+/* 动态加载 SDK：主 CDN 超时/失败自动换备选，全失败返回 false */
+function cbLoadSdk(done) {
+  if (window.cloudbase) { done(true); return; }
+  var urls = [
+    'https://static.cloudbase.net/cloudbase-js-sdk/2.7.1/cloudbase.full.js',
+    'https://unpkg.com/@cloudbase/js-sdk@2.7.1/dist/cloudbase.full.js'
+  ];
+  var i = 0;
+  (function next() {
+    if (i >= urls.length) { done(false); return; }
+    var s = document.createElement('script'), fin = false;
+    var url = urls[i++];          /* 先取址再递增，不依赖 setTimeout 的异步语义 */
+    var to = setTimeout(function () { if (!fin) { fin = true; next(); } }, 6000);
+    s.src = url;
+    s.onload  = function () { if (!fin) { fin = true; clearTimeout(to); done(!!window.cloudbase); } };
+    s.onerror = function () { if (!fin) { fin = true; clearTimeout(to); next(); } };
+    document.head.appendChild(s);
+  })();
+}
+
+/* 云端数据 → 本地（仅在云端比本地新时执行） */
+function applyRemote(d) {
+  try {
+    if (Array.isArray(d.stocks) && d.stocks.length) {
+      STOCKS = d.stocks;
+      localStorage.setItem('board_stocks', JSON.stringify(STOCKS));
+    }
+    if (d.cost && typeof d.cost === 'object') { COST = d.cost; localStorage.setItem('board_cost', JSON.stringify(COST)); }
+    if (d.keys && typeof d.keys === 'object') { USER_KEYS = d.keys; localStorage.setItem('board_keys', JSON.stringify(USER_KEYS)); }
+    if (d.model === 'A' || d.model === 'B') { WINRATE_MODEL = d.model; localStorage.setItem('board_winrate_model', d.model); }
+    cbSyncAt(d.updatedAt || Date.now());
+  } catch (e) {}
+}
+
+/* 本地 → 云端（1.5 秒防抖，避免频繁改动打爆请求量） */
+function cbPush() {
+  if (!CB.enabled || !CB.uid || !CB.db) return;
+  clearTimeout(CB.timer);
+  CB.timer = setTimeout(function () {
+    if (CB.pushing) return;
+    CB.pushing = true;
+    var t = Date.now();
+    var payload = { stocks: STOCKS, cost: COST, keys: USER_KEYS, model: WINRATE_MODEL, updatedAt: t };
+    Promise.resolve(CB.db.collection('user_data').doc(CB.uid).set(payload)).then(function () {
+      CB.pushing = false; cbSyncAt(t);
+    }).catch(function () { CB.pushing = false; });
+  }, 1500);
+}
+
+function cbPull() {
+  return Promise.resolve(CB.db.collection('user_data').doc(CB.uid).get()).then(function (res) {
+    var d = res && res.data;
+    if (Array.isArray(d)) return d[0] || null;
+    return d || null;
+  });
+}
+
+/* 登录成功后：拉云端 → 合并 → 启动看板（拉失败也照常启动） */
+function afterLogin(uid, boot) {
+  CB.uid = uid; CB.enabled = true;
+  var done = function () { cbHide(); boot(); };
+  cbPull().then(function (d) {
+    if (d && d.updatedAt && d.updatedAt > cbSyncAt()) applyRemote(d);
+    else cbPush();
+    done();
+  }).catch(function () { done(); });
+}
+
+/* 登录 / 注册（先登录，失败则自动注册，一个按钮搞定） */
+function tryLogin(u, p, signup, boot, onOk, onErr) {
+  var auth;
+  try { auth = CB.app.auth({ persistence: 'local' }); }
+  catch (e) { onErr('SDK 初始化失败'); return; }
+  var fn = signup ? 'signUpWithUsernameAndPassword' : 'signInWithUsernameAndPassword';
+  if (typeof auth[fn] !== 'function') { onErr('当前 SDK 不支持用户名密码登录'); return; }
+  var to = setTimeout(function () { onErr('连接超时，检查网络或环境 ID'); }, 10000);
+  Promise.resolve(auth[fn](u, p)).then(function () {
+    clearTimeout(to);
+    Promise.resolve(CB.app.auth({ persistence: 'local' }).getLoginState()).then(function (st) {
+      var usr = st && st.user, uid = usr && (usr.uid || usr.uuid);
+      if (!uid) { onErr('登录成功但取不到 uid'); return; }
+      if (onOk) onOk();
+      afterLogin(uid, boot);
+    }).catch(function () { onErr('登录态读取失败'); });
+  }).catch(function (e) {
+    clearTimeout(to);
+    onErr((e && e.message) || '失败');
+  });
+}
+
+function bindAuthUI(boot, goLocal) {
+  var u = document.getElementById('auUser'), p = document.getElementById('auPass');
+  var go = document.getElementById('auGo'), msg = document.getElementById('auMsg');
+  var skip = document.getElementById('auSkip'), setBtn = document.getElementById('auSet');
+  var info = document.getElementById('auSetInfo');
+  if (info) info.textContent = '当前环境：' + cbEnv();
+  if (skip) skip.onclick = goLocal;
+  if (setBtn) setBtn.onclick = function () {
+    var v = prompt('粘贴 CloudBase 环境 ID', cbEnv());
+    if (v !== null && String(v).trim()) {
+      cbSetEnv(v);
+      if (info) info.textContent = '已保存：' + String(v).trim() + '（重新打开生效）';
+    }
+  };
+  if (go) go.onclick = function () {
+    var uu = (u && u.value ? u.value : '').trim();
+    var pp = (p && p.value) ? p.value : '';
+    if (!uu) { if (msg) msg.textContent = '请填用户名'; return; }
+    if (pp.length < 8) { if (msg) msg.textContent = '密码至少 8 位'; return; }
+    if (msg) msg.textContent = '登录中…';
+    tryLogin(uu, pp, false, boot, null, function () {
+      if (msg) msg.textContent = '注册中…';
+      tryLogin(uu, pp, true, boot, null, function (e2) {
+        if (msg) msg.textContent = e2 ? String(e2) : '失败，请重试';
+      });
+    });
+  };
+}
+
+function startAuth(boot) {
+  var goLocal = function () { CB.enabled = false; cbHide(); boot(); };
+  var env = cbEnv();
+  if (!env) { goLocal(); return; }              /* 未配置 → 纯本地，不打扰 */
+  cbLoadSdk(function (ok) {
+    if (!ok) { goLocal(); return; }
+    try { CB.app = window.cloudbase.init({ env: env }); CB.db = CB.app.database(); }
+    catch (e) { goLocal(); return; }
+    var auth = null;
+    try { auth = CB.app.auth({ persistence: 'local' }); } catch (e) { goLocal(); return; }
+    Promise.resolve(auth.getLoginState()).then(function (st) {
+      var usr = st && st.user, uid = usr && (usr.uid || usr.uuid);
+      if (uid) { afterLogin(uid, boot); }
+      else { cbShow(); bindAuthUI(boot, goLocal); }
+    }).catch(function () { cbShow(); bindAuthUI(boot, goLocal); });
   });
 }
 </script>
