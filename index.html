@@ -144,6 +144,19 @@
   .dlg .rowb { display: flex; gap: 8px; margin-top: 6px; }
   .loading { text-align: center; color: var(--tx3); padding: 30px; font-size: 13px; }
 
+  /* 顶部版本徽章（标题旁，显示当前用版本+发布时间） */
+  .verbadge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 500; line-height: 1;
+    padding: 4px 7px; border-radius: 4px;
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+    color: #dbeafe; border: 1px solid #3b82f6;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.2px;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+  }
+  .verbadge.stale { background: linear-gradient(135deg, #7c2d12 0%, #dc2626 100%); border-color: #ef4444; color: #fee2e2; animation: blink 1.2s infinite; }
+  .verbadge .vd { opacity: 0.7; }
+
   /* 添加持仓搜索 */
   .addrs { max-height: 320px; overflow-y: auto; margin-top: 8px; }
   .opt {
@@ -231,6 +244,7 @@
   <div class="wrap topin">
     <span class="dot idle" id="dot"></span>
     <span class="ttl">持仓看板</span>
+    <span id="verBadge" class="verbadge">v… · 加载中…</span>
     <span class="sp"></span>
     <span class="pull">下拉刷新</span>
     <button class="add" id="bAdd" aria-label="添加持仓">+</button>
@@ -245,6 +259,10 @@
   <div class="grp">
     <div class="grp-head" data-t="sec"><span class="grp-arrow">▾</span>板块强度</div>
     <div class="grp-body" id="secBody"><div class="note">加载中…</div></div>
+  </div>
+  <div class="grp">
+    <div class="grp-head" data-t="topic"><span class="grp-arrow">▾</span>题材热度</div>
+    <div class="grp-body" id="topicBody"><div class="note">加载中…</div></div>
   </div>
   <div class="hero">
     <div class="k">组合等权（<span id="heroCnt">5</span> 只）</div>
@@ -891,6 +909,47 @@ function leaderCodes() {
   return out;
 }
 
+/* ---- 版本徽章 ----
+   BUILD_ID: 每次发布修改时 +1（sw.js 的 CACHE 名同步 +1）
+   BUILD_DATE: 发布时间（YYYY-MM-DD HH:MM）
+   渲染逻辑：标题旁显示「vXX · MM-DD HH:MM（行情HH:MM）」
+   - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
+   - 触发整页刷新（location.reload）就能拿到最新版
+   - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
+var BUILD_ID = 'v20', BUILD_DATE = '2026-09-09 14:20';
+var DATA_AT = 0;          // 持仓行情最新更新时间戳
+var QUOTE_AT = 0;         // 板块指数最新更新时间戳
+function fmtTimeShort(t) {
+  if (!t) return '--:--';
+  var d = new Date(t);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+function fmtDateShort(t) {
+  if (!t) return '--/--';
+  var d = new Date(t);
+  return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+function renderVerBadge() {
+  var el = document.getElementById('verBadge');
+  if (!el) return;
+  var dataTxt = DATA_AT ? '行情 ' + fmtTimeShort(DATA_AT) : '行情加载中';
+  var quoteTxt = QUOTE_AT ? ' · 板块 ' + fmtTimeShort(QUOTE_AT) : '';
+  el.innerHTML = '<b>' + BUILD_ID + '</b> <span class="vd">· ' + fmtDateShort(Date.parse(BUILD_DATE.replace(' ', 'T'))) + ' ' + BUILD_DATE.slice(11) + '（' + dataTxt + quoteTxt + '）</span>';
+  el.title = '发布版本 ' + BUILD_ID + ' · ' + BUILD_DATE + '\n数据时间：行情 ' + (DATA_AT ? fmtTimeShort(DATA_AT) : '未到') + ' / 板块 ' + (QUOTE_AT ? fmtTimeShort(QUOTE_AT) : '未到') + '\n如果不是最新版：下拉刷新或点「刷新」按钮整页重载';
+  /* 检测 sw 是否落后：取 navigator.serviceWorker.controller.scriptURL 末尾的 CACHE 名 */
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    try {
+      var swCacheMatch = (navigator.serviceWorker.controller.scriptURL || '').match(/board-v(\d+)/);
+      var localVersion = parseInt((BUILD_ID.match(/v(\d+)/) || [])[1] || 0, 10);
+      var swVersion    = parseInt((swCacheMatch && swCacheMatch[1]) || localVersion, 10);
+      if (swVersion < localVersion) el.classList.add('stale');
+    } catch (e) {}
+  }
+}
+function refreshVerBadge() {
+  if (typeof renderVerBadge === 'function') renderVerBadge();
+}
+
 /* ---- 涨停池（东方财富实时接口，JSONP 免 CORS）----
    ZT_MAP: 完整代码(如 sz000988) -> {name,pct,lbc连板数,hybk中文板块名,lbt涨停时间}
    ZT_LIST: 完整涨停股数组（含全部原始字段）——用于按 hybk 聚合、按 lbt 排序
@@ -928,7 +987,10 @@ function fetchLimitUp() {
       ZT_BY_HYBK[hybk].push(item);
       if (lbc > ZT_MAX_LBC) ZT_MAX_LBC = lbc;
     }
+    computeTopicScores();
     renderSectors();
+    renderTopicsBody();
+    refreshVerBadge();   // 同步刷新数据源时间徽章
   };
   var s = document.createElement('script');
   s.src = 'https://push2ex.eastmoney.com/getTopicZTPool?cb=' + cb +
@@ -1014,14 +1076,13 @@ function renderMarket(sh, secs) {
     '</div>' + lvHtml;
 }
 
-function renderSectorsBody(secs) {
-  var el = document.getElementById('secBody');
-  if (!el) return;
-  if (!secs.length && !Object.keys(ZT_BY_HYBK).length) { el.innerHTML = '<div class="note">加载中…</div>'; return; }
-
-  /* ===== 第一区：题材热点榜（完全动态，来自东方财富涨停池 hybk 聚合）=====
-     强度 = 涨停家数 × 5 + 该板块个股平均涨幅（涨停家数权重最高，因为这才反映"真实盘面热点"）
-     不依赖任何手选 LEADERS —— 今日涨停股所属板块即今日热点板块 */
+/* ===== 题材热度榜（独立分组，由东方财富涨停池 hybk 聚合，完全动态）=====
+   强度 = 涨停家数 × 5 + 该板块个股平均涨幅 + 最高连板 × 0.5
+   龙头 = 该 hybk 涨停时间最早（lbt 升序，先涨停=板块锚）
+   中军 = 连板数最高的非龙头
+   涨停梯队 = 剩余涨停股 */
+var TOPICS_SCORES = [], TOPICS_AT = 0;
+function computeTopicScores() {
   var hybkScores = [];
   for (var hybk in ZT_BY_HYBK) {
     var arr = ZT_BY_HYBK[hybk].slice();
@@ -1036,44 +1097,60 @@ function renderSectorsBody(secs) {
     hybkScores.push({ hybk: hybk, ztList: arr, count: arr.length, maxLbc: maxLbc, avgPct: sumPct / arr.length, score: score });
   }
   hybkScores.sort(function (a, b) { return b.score - a.score; });
+  TOPICS_SCORES = hybkScores;
+  TOPICS_AT = Date.now();
+}
+function ztChipHtml(item, role) {
+  var roleTag = role ? '<b>' + role + '</b> ' : '';
+  var lbt = item.lbt ? ('<span class="lbt">' + formatLbt(item.lbt) + '</span>') : '';
+  var lbcTag = item.lbc > 1 ? ('<span class="zt-tag">' + item.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
+  return '<span class="chip chip-zt">' + roleTag + lbcTag + lbt + '<span class="nm">' + esc(item.name) + '</span> <b class="z">' + sign(item.pct) + '%</b></span>';
+}
+function formatLbt(lbt) {
+  /* lbt 是 HHMMSS 数字（如 93212 = 9:32:12，134711 = 13:47:11）—— 补 0 到 6 位再切 */
+  var s = ('000000' + lbt).slice(-6);
+  return s.slice(0, 2) + ':' + s.slice(2, 4) + ':' + s.slice(4, 6);
+}
+function hotRow(h) {
+  var list = h.ztList;
+  var lead = list[0];
+  var mid = null;
+  for (var i = 1; i < list.length; i++) {
+    if (list[i].lbc > (mid ? mid.lbc : 0)) mid = list[i];
+  }
+  if (mid && mid.code === lead.code) mid = list[1] || null;
+  var hots = list.filter(function (x) { return x !== lead && x !== mid; });
+  var head = '<div class="shead"><span class="sname">' + esc(h.hybk) + '</span><span class="sbadge">' + h.count + '家涨停</span>' + (h.maxLbc > 1 ? ' <span class="sbadge lbc">最高' + h.maxLbc + '连板</span>' : '') + '</div>';
+  var chips = ztChipHtml(lead, '龙') +
+              (mid ? ztChipHtml(mid, '中') : '') +
+              (hots.length ? '<span class="chip-sep">｜</span>' + hots.slice(0, 3).map(function (x) { return ztChipHtml(x); }).join('') : '');
+  return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
+}
+function renderTopicsBody() {
+  var el = document.getElementById('topicBody');
+  if (!el) return;
+  if (!TOPICS_SCORES.length) {
+    var hint = ZT_LIST.length ? '<div class="note">聚合中…</div>' : '<div class="note">加载涨停池…</div>';
+    el.innerHTML = hint;
+    return;
+  }
+  var tsTxt = TOPICS_AT ? '<span class="vd">· ' + fmtTime(TOPICS_AT) + '</span>' : '';
+  el.innerHTML =
+    '<div class="secsub accent">今日题材热点 · 涨停家数排行 ' + tsTxt + '</div>' +
+    TOPICS_SCORES.slice(0, 8).map(hotRow).join('');
+}
 
-  /* ===== 第二区：申万 31 一级行业涨幅榜（来自腾讯 SECTORS）===== */
+function renderSectorsBody(secs) {
+  var el = document.getElementById('secBody');
+  if (!el) return;
+  if (!secs.length) { el.innerHTML = '<div class="note">加载中…</div>'; return; }
+
+  /* 申万 31 一级行业涨幅榜 */
   var ind = secs.slice().sort(function (a, b) { return b.pct - a.pct; });
   var indTop = ind.slice(0, 5);
   var indBot = ind.slice(-3).reverse();
 
-  /* 单只涨停股的渲染（用在题材热点榜） */
-  function ztChipHtml(item, role) {
-    var roleTag = role ? '<b>' + role + '</b> ' : '';
-    var lbt = item.lbt ? ('<span class="lbt">' + formatLbt(item.lbt) + '</span>') : '';
-    var lbcTag = item.lbc > 1 ? ('<span class="zt-tag">' + item.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
-    return '<span class="chip chip-zt">' + roleTag + lbcTag + lbt + '<span class="nm">' + esc(item.name) + '</span> <b class="z">' + sign(item.pct) + '%</b></span>';
-  }
-  function formatLbt(lbt) {
-    /* lbt 是 HHMMSS 数字（如 93212 = 9:32:12，134711 = 13:47:11）—— 补 0 到 6 位再切 */
-    var s = ('000000' + lbt).slice(-6);
-    return s.slice(0, 2) + ':' + s.slice(2, 4) + ':' + s.slice(4, 6);
-  }
-
-  /* 题材热点榜 row：龙头 = lbt 最早的，中军 = 连板数最高的，涨停梯队 = 剩余的 */
-  function hotRow(h) {
-    var list = h.ztList;
-    var lead = list[0]; // lbt 最小
-    /* 中军 = 连板数最高的（非龙头时） */
-    var mid = null;
-    for (var i = 1; i < list.length; i++) {
-      if (list[i].lbc > (mid ? mid.lbc : 0)) mid = list[i];
-    }
-    if (mid && mid.code === lead.code) mid = list[1] || null;
-    var hots = list.filter(function (x) { return x !== lead && x !== mid; });
-    var head = '<div class="shead"><span class="sname">' + esc(h.hybk) + '</span><span class="sbadge">' + h.count + '家涨停</span>' + (h.maxLbc > 1 ? ' <span class="sbadge lbc">最高' + h.maxLbc + '连板</span>' : '') + '</div>';
-    var chips = ztChipHtml(lead, '龙') +
-                (mid ? ztChipHtml(mid, '中') : '') +
-                (hots.length ? '<span class="chip-sep">｜</span>' + hots.slice(0, 3).map(function (x) { return ztChipHtml(x); }).join('') : '');
-    return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
-  }
-
-  /* 普通 row：板块名 + 涨幅 + LEADERS.pool 候选股（用于行业涨幅榜） */
+  /* 普通 row：板块名 + 涨幅 + LEADERS.pool 候选股 */
   function row(s) {
     var head = '<div class="shead"><span class="sname">' + esc(s.name) + '</span><span class="spct ' + cls(s.chg) + '">' + sign(s.pct) + '%</span></div>';
     var L = LEADERS[s.code];
@@ -1106,29 +1183,6 @@ function renderSectorsBody(secs) {
     return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
   }
 
-  /* ===== 持仓相关板块 = 在「申万行业涨幅榜」里出现 + 在 LEADERS 里有的 =====
-     (持仓相关板块可能不在今日热点榜里 → 用 LEADERS.pool 兜底显示) */
-  var holdingNames = {
-    'pt01801081': '半导体', 'pt01801080': '电子', 'pt02GN2124': '存储器',
-    'pt02GN2156': 'CPO', 'pt01801083': 'PCB/元件', 'pt02GN2224': '液冷',
-    'pt02GN2166': '先进封装', 'pt01801030': '基础化工'
-  };
-  var holdSecs = [];
-  for (var i = 0; i < secs.length; i++) {
-    if (holdingNames[secs[i].code] && LEADERS[secs[i].code]) holdSecs.push(secs[i]);
-  }
-
-  /* ===== 渲染：4 个区块 ===== */
-  var hotHtml = '';
-  if (hybkScores.length) {
-    hotHtml = '<div class="secsub accent">今日题材热点 · 涨停家数排行</div>' +
-      hybkScores.slice(0, 6).map(hotRow).join('');
-  }
-  var holdHtml = '';
-  if (holdSecs.length) {
-    holdHtml = '<div class="secsub">持仓相关板块 · 龙头/中军实时涨跌</div>' +
-      holdSecs.map(row).join('');
-  }
   var indHtml = indTop.length
     ? '<div class="secsub">申万行业涨幅榜</div>' + indTop.map(row).join('')
     : '';
@@ -1137,8 +1191,6 @@ function renderSectorsBody(secs) {
     : '';
 
   el.innerHTML =
-    hotHtml +
-    holdHtml +
     indHtml +
     botHtml +
     '<div class="secsub">今日涨停板</div>' +
@@ -1212,7 +1264,9 @@ function fetchStocksQuote() {
   addScript('https://qt.gtimg.cn/q=' + codes + '&_=' + Date.now() + seq, function (ok) {
     if (seq !== stockSeq) return;
     if (!ok) return;
-    renderStocks();   // 只刷新持仓区+大盘指数（renderStocks 内部处理）
+    DATA_AT = Date.now();
+    refreshVerBadge();     // 行情时间更新 → 同步徽章
+    renderStocks();        // 只刷新持仓区+大盘指数（renderStocks 内部处理）
     computeAlertsForStocks();
   });
 }
@@ -1224,9 +1278,11 @@ function fetchSectorsQuote() {
   addScript('https://qt.gtimg.cn/q=' + codes + '&_=' + Date.now() + seq, function (ok) {
     if (seq !== secSeq) return;
     if (!ok) return;
-    renderSectors();  // 只刷新板块区
+    QUOTE_AT = Date.now();
+    refreshVerBadge();    // 板块时间更新 → 同步徽章
+    renderSectors();      // 只刷新板块区
   });
-  fetchLimitUp();     // 联动涨停池（独立一路，互不阻塞）
+  fetchLimitUp();         // 联动涨停池（独立一路，互不阻塞）
 }
 /* 兼容旧 load()：仍保留但只是触发两路 */
 function load() {
@@ -1418,6 +1474,7 @@ loadKeys();
 schedule();
 scheduleSectors();
 scheduleKeys();
+renderVerBadge();   // 标题旁版本徽章（首屏即显示）
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden && isTrading()) { load(); loadKeys(); schedule(); scheduleSectors(); scheduleKeys(); }
 });
