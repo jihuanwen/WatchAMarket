@@ -146,6 +146,22 @@
   .dlg .rowb { display: flex; gap: 8px; margin-top: 6px; }
   .loading { text-align: center; color: var(--tx3); padding: 30px; font-size: 13px; }
 
+  /* 更多菜单 */
+  .more-item { padding: 12px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .more-item:last-child { border-bottom: none; }
+  .more-item.click { cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+  .more-item.click:active { opacity: .7; }
+  .more-arrow { color: var(--tx3); font-size: 18px; line-height: 1; }
+  .more-label { font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+  .model-sel { display: flex; gap: 8px; }
+  .model-btn { flex: 1; }
+  .model-tag {
+    display: inline-block; font-size: 10px; font-weight: 700; color: #4ade80;
+    background: #1d3a2c; border: 1px solid #22c55e; border-radius: 4px;
+    padding: 0 5px; margin-left: 4px; vertical-align: 2px;
+  }
+  .model-tag.b { color: #93c5fd; background: #0b1e3a; border-color: #2563eb; }
+
   /* 涨停梯队（独立分组内） */
 .zt-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
 .zt-row:last-child { border-bottom: none; }
@@ -342,8 +358,8 @@
     顶部「大盘强度 / 板块强度 / 题材热度」为可折叠分组，点击标题展开收起；大盘强度按指数+行业宽度+趋势打分；板块强度分「主力资金净流入榜（前5）/净流出榜（前3，点击板块展开成分股涨幅前5前排票）」「申万行业涨幅榜 / 领跌（默认收起，点击展开）」「今日涨停板」。<br>
     「题材热度」分组显示「前三题材板块的涨停板（龙头+中军+涨停梯队，点击板块行展开跟涨票）+ 涨停梯队折叠按钮（底部）」。板块与资金流为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
     「开盘至今」识别高开低走 / 低开高走；「超额」= 个股涨跌幅 − 沪指涨跌幅。<br>
-    每只「关键位」为 AI 按最新收盘技术形态自动给出的操作建议，可在「成本&关键位」里修改，留空则恢复默认。<br>
-    点持仓行（除 ×）弹出「胜率模型」：按量能+均线+MACD+蜡烛形态判断当前处于洗盘 / 吸筹 / 出货 / 拉升 / 观望；点行尾 × 移除（持仓只存本机，不上传）。<br>
+    每只「关键位」为 AI 按最新收盘技术形态自动给出的操作建议，可在底部「更多 → 成本&关键位」里修改，留空则恢复默认。<br>
+    点持仓行（除 ×）弹出「胜率模型」；模型方案可在底部「更多」切换：模型A＝AI 启发式（量能+均线+MACD+形态打分），模型B＝自定义（规则待提供）。点行尾 × 移除（持仓只存本机，不上传）。<br>
     添加到主屏幕：Safari 点分享 → 添加到主屏幕；Chrome 菜单 → 添加到主屏幕。之后可像 App 全屏打开。<br>
     仅供个人参考，不构成投资建议。
   </div>
@@ -354,7 +370,7 @@
     <button id="bR">刷新</button>
     <button id="bS">播报</button>
     <button id="bA">异动</button>
-    <button id="bC">成本&关键位</button>
+    <button id="bM">更多</button>
   </div>
 </div>
 
@@ -364,6 +380,22 @@
     <p>关键位已由 AI 按最新收盘技术形态预填，可直接改；留空则恢复 AI 默认建议。成本价与关键位只存本机，不上传。</p>
     <div id="cInputs"></div>
     <div class="rowb"><button id="cCancel">取消</button><button id="cSave">保存</button></div>
+  </div>
+</div>
+
+<div class="mask" id="moreMask">
+  <div class="dlg">
+    <h3>更多</h3>
+    <div class="more-item" id="mCost">成本&关键位 <span class="more-arrow">›</span></div>
+    <div class="more-item">
+      <div class="more-label">胜率模型方案</div>
+      <div class="model-sel">
+        <button id="mA" class="model-btn">模型A</button>
+        <button id="mB" class="model-btn">模型B</button>
+      </div>
+      <div class="hint" id="mHint"></div>
+    </div>
+    <div class="rowb"><button id="mClose">关闭</button></div>
   </div>
 </div>
 
@@ -379,7 +411,7 @@
 
 <div class="mask" id="anMask">
   <div class="dlg">
-    <h3 id="anTitle">胜率模型分析</h3>
+    <h3 id="anTitle">胜率模型分析 <span id="anModelTag" class="model-tag">A</span></h3>
     <div id="anBody"><div class="an-loading">分析中…</div></div>
     <div class="rowb"><button id="anClose">关闭</button></div>
   </div>
@@ -944,6 +976,23 @@ function analyzeWinRate(rows, curPrice, curPct) {
   };
 }
 
+/* ★ 胜率模型方案：A = AI 启发式打分（analyzeWinRate）；B = 用户自定义（待提供规则） */
+var WINRATE_MODEL = 'A';
+try { WINRATE_MODEL = localStorage.getItem('board_winrate_model') === 'B' ? 'B' : 'A'; } catch (e) {}
+
+function analyzeWinRateB(rows, curPrice, curPct) {
+  /* 模型B 占位：规则由用户提供后实现，当前返回「待配置」状态。 */
+  var d = { ma5: null, ma10: null, ma20: null, ma60: null, difNow: null, deaNow: null,
+            volRatio: 1, vol3Ratio: 1, upDays: 0, dnDays: 0, longUpShadow: 0, longLowShadow: 0,
+            range20: 0, nearHi20: 0, curPct: curPct };
+  return {
+    state: '待配置', cls: 'wa', confidence: 0,
+    reasons: ['模型B 的判定规则尚未提供，暂无法分析。'],
+    suggestion: '模型B 是你自定义的胜率模型。请把你的判定规则告诉 AI，例如：\n· 判定哪几种状态（沿用 洗盘/吸筹/出货/拉升/观望，或自定义如 可买/持有/减仓/清仓）；\n· 每种状态用哪些指标、什么条件触发（可用指标见对话说明）。',
+    detail: d
+  };
+}
+
 function renderAnalysis(r, stock) {
   var d = r.detail;
   function num(v) { return v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(2); }
@@ -980,7 +1029,7 @@ function showAnalysis(code) {
   if (!stock) return;
   var anMask = document.getElementById('anMask');
   var anBody = document.getElementById('anBody');
-  document.getElementById('anTitle').textContent = stock.name + ' · ' + code.slice(2) + ' · 胜率模型';
+  document.getElementById('anTitle').innerHTML = esc(stock.name) + ' · ' + code.slice(2) + ' · 胜率模型 <span class="model-tag' + (WINRATE_MODEL === 'B' ? ' b' : '') + '">模型' + WINRATE_MODEL + '</span>';
   anMask.className = 'mask show';
   anBody.innerHTML = '<div class="an-loading">正在拉取日线并计算…</div>';
   var parsed = parse(stock);        /* 实时行情（现价/涨跌） */
@@ -989,7 +1038,9 @@ function showAnalysis(code) {
       anBody.innerHTML = '<div class="an-loading">日线数据未取到（可能休市/网络异常），请稍后重试</div>';
       return;
     }
-    var r = analyzeWinRate(rows, parsed ? parsed.price : null, parsed ? parsed.pct : null);
+    var r = (WINRATE_MODEL === 'B')
+      ? analyzeWinRateB(rows, parsed ? parsed.price : null, parsed ? parsed.pct : null)
+      : analyzeWinRate(rows, parsed ? parsed.price : null, parsed ? parsed.pct : null);
     anBody.innerHTML = renderAnalysis(r, stock);
   });
 }
@@ -1224,7 +1275,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v27', BUILD_DATE = '2026-09-09 16:20';
+var BUILD_ID = 'v28', BUILD_DATE = '2026-09-09 16:45';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -1965,7 +2016,27 @@ function renderInputs() {
       '<div class="hint">浮盈按成本价计算；留空则显示 AI 默认关键位。</div></div>';
   }).join('');
 }
-document.getElementById('bC').onclick = function () { renderInputs(); mask.className = 'mask show'; };
+/* 更多菜单：成本&关键位 + 胜率模型方案切换 */
+var moreMask = document.getElementById('moreMask');
+document.getElementById('bM').onclick = function () { renderModelSel(); moreMask.className = 'mask show'; };
+document.getElementById('mClose').onclick = function () { moreMask.className = 'mask'; };
+moreMask.onclick = function (e) { if (e.target === moreMask) moreMask.className = 'mask'; };
+document.getElementById('mCost').onclick = function () { moreMask.className = 'mask'; renderInputs(); mask.className = 'mask show'; };
+document.getElementById('mA').onclick = function () { setModel('A'); };
+document.getElementById('mB').onclick = function () { setModel('B'); };
+
+function setModel(m) {
+  WINRATE_MODEL = m;
+  try { localStorage.setItem('board_winrate_model', m); } catch (e) {}
+  renderModelSel();
+}
+function renderModelSel() {
+  document.getElementById('mA').className = 'model-btn' + (WINRATE_MODEL === 'A' ? ' on' : '');
+  document.getElementById('mB').className = 'model-btn' + (WINRATE_MODEL === 'B' ? ' on' : '');
+  document.getElementById('mHint').textContent = WINRATE_MODEL === 'B'
+    ? '模型B：自定义规则（未配置，请在对话中提供规则）'
+    : '模型A：AI 启发式（量能+均线+MACD+形态打分）';
+}
 document.getElementById('cCancel').onclick = function () { mask.className = 'mask'; };
 document.getElementById('cSave').onclick = function () {
   var ins = document.querySelectorAll('#cInputs input');
