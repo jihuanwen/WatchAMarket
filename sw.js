@@ -1,4 +1,4 @@
-var CACHE = 'board-v16';
+var CACHE = 'board-v17';
 var ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {
@@ -13,10 +13,10 @@ self.addEventListener('activate', function (e) {
   self.clients.claim();
 });
 
-// 行情请求一律走网络，不缓存
+// 行情/数据请求一律走网络，不缓存（腾讯行情、K线、搜索、东方财富涨停池）
 self.addEventListener('fetch', function (e) {
   var url = e.request.url;
-  if (url.indexOf('qt.gtimg.cn') > -1) return;
+  if (url.indexOf('gtimg.cn') > -1 || url.indexOf('eastmoney.com') > -1) return;
 
   // 页面（导航请求）：网络优先，保证每次打开都是最新版；网络失败才回退缓存
   if (e.request.mode === 'navigate') {

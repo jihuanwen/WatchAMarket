@@ -199,6 +199,9 @@
   .chip-hot  { font-size: 10px; padding: 2px 6px; opacity: 0.85; }
   .chip-sep  { font-size: 10px; color: var(--tx3); padding: 0 2px; }
 .chip-empty { color: var(--tx3); font-size: 11px; padding: 4px 8px; border-style: dashed; }
+  .zt-tag { font-size: 9px; font-weight: 700; color: #fff; background: #dc2626; border-radius: 3px; padding: 1px 3px; margin-right: 3px; line-height: 1.3; }
+  .ztbar { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--tx2); margin-top:4px; flex-wrap:wrap; }
+  .ztbar .zc { font-weight:700; color:#f87171; font-size:13px; }
 
   /* 异动 / 关键位 提醒标签 */
   .alerts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
@@ -550,7 +553,8 @@ var KEY_PENDING = {};
 function effectiveKey(code) {
   var v = USER_KEYS[code];
   if (v && v.trim && v.trim() !== '') return v;
-  return DEFAULT_KEYS[code] || AUTO_KEYS[code] || '';
+  /* 动态算出的 AUTO_KEYS 优先于写死的 DEFAULT_KEYS；DEFAULT_KEYS 仅作日线拉取失败时的兜底 */
+  return AUTO_KEYS[code] || DEFAULT_KEYS[code] || '';
 }
 
 /* ---- 自动计算关键位：拉前复权日线 → 算 MA/MACD/KDJ → 按结构生成操作建议 ---- */
@@ -636,11 +640,12 @@ function fetchKline(code, cb) {
 }
 
 function loadKeys() {
+  /* 对所有持仓动态算关键位（DEFAULT_KEYS 只作兜底，不再阻断 AUTO_KEYS 计算） */
   var todo = STOCKS.filter(function (x) {
-    return !DEFAULT_KEYS[x.code] && !USER_KEYS[x.code] && !AUTO_KEYS[x.code] && !KEY_PENDING[x.code];
+    return !USER_KEYS[x.code] && !AUTO_KEYS[x.code] && !KEY_PENDING[x.code];
   });
   if (!todo.length) return;
-  var idx = 0;
+  var idx = 0, done = 0;
   function next() {
     if (idx >= todo.length) return;
     var code = todo[idx++].code;
@@ -649,12 +654,35 @@ function loadKeys() {
       KEY_PENDING[code] = false;
       if (rows && rows.length >= 30) {
         AUTO_KEYS[code] = calcKey(rows);
-        render();
+        done++;
+        if (done >= todo.length) render();
       }
       next();
     });
   }
   next();
+}
+
+/* 盘中每 5 分钟重算一次关键位（反映盘中实时价与技术指标变化） */
+var keyTimer = null;
+function recalcKeys() {
+  var codes = STOCKS.map(function (x) { return x.code; }).filter(function (c) { return !USER_KEYS[c]; });
+  if (!codes.length) return;
+  var idx = 0;
+  function next() {
+    if (idx >= codes.length) { render(); return; }
+    var code = codes[idx++];
+    fetchKline(code, function (rows) {
+      if (rows && rows.length >= 30) AUTO_KEYS[code] = calcKey(rows);
+      next();
+    });
+  }
+  next();
+}
+function scheduleKeys() {
+  clearTimeout(keyTimer);
+  if (!isTrading()) { keyTimer = null; return; }
+  keyTimer = setTimeout(function () { recalcKeys(); scheduleKeys(); }, SECTOR_INTERVAL);
 }
 
 function isIndex(c) { return /^(sh000|sz399)/.test(c); }
@@ -762,7 +790,7 @@ function renderStocks() {
     (trading ? '● 持仓 2秒 / 板块 15分' : '● 休市 已暂停') +
     ' · ' + (fmtTime((stk[0] || idx[0] || {}).time) || '—');
 
-  document.getElementById('keysDate').textContent = '· 关键位由 AI 生成 ' + KEYS_DATE;
+  document.getElementById('keysDate').textContent = '· 关键位盘中动态重算';
 
   last = { stk: stk, avg: avg };
 
@@ -838,6 +866,40 @@ function leaderCodes() {
     }
   }
   return out;
+}
+
+/* ---- 涨停池（东方财富实时接口，JSONP 免 CORS）----
+   ZT_MAP: 完整代码(如 sz000988) -> {name,pct,lbc连板数,hybk行业}
+   用于把「真正涨停的领头羊」识别为龙头，而不是只在写死池子里按涨幅挑。 */
+var ZT_MAP = {}, ZT_CNT = 0, ZT_MAX_LBC = 0, ztSeq = 0;
+function todayStr() {
+  var d = new Date();
+  return '' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
+}
+function fetchLimitUp() {
+  var cb = '__zt' + (++ztSeq);
+  window[cb] = function (d) {
+    try { delete window[cb]; } catch (e) {}
+    ZT_MAP = {}; ZT_MAX_LBC = 0; ZT_CNT = 0;
+    var data = (d && d.data) ? d.data : {};
+    var pool = data.pool || [];
+    ZT_CNT = data.tc || pool.length || 0;
+    for (var i = 0; i < pool.length; i++) {
+      var p = pool[i];
+      var mkt = (p.m === 0) ? 'sz' : (p.m === 1 ? 'sh' : null);
+      if (!mkt || !p.c) continue;
+      var code = mkt + p.c;
+      var lbc = p.lbc || 1;
+      ZT_MAP[code] = { name: p.n, pct: p.zdp, lbc: lbc, hybk: p.hybk || '' };
+      if (lbc > ZT_MAX_LBC) ZT_MAX_LBC = lbc;
+    }
+    renderSectors();
+  };
+  var s = document.createElement('script');
+  s.src = 'https://push2ex.eastmoney.com/getTopicZTPool?cb=' + cb +
+    '&ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=300&sort=fbt%3Aasc&date=' + todayStr();
+  s.onerror = function () { s.remove(); };
+  document.body.appendChild(s);
 }
 
 /* 沪指日线 → 压力/支撑（缓存一次） */
@@ -931,21 +993,27 @@ function renderSectorsBody(secs, boards) {
 
   function chipHtml(item, clsName, role) {
     if (!item) return '';
+    var zt = item.zt ? '<span class="zt-tag">' + (item.zt.lbc > 1 ? item.zt.lbc + '连板' : '涨停') + '</span>' : '';
     var head = role ? '<b>' + role + '</b> ' : '';
-    return '<span class="chip ' + clsName + '">' + head + '<span class="nm">' + esc(item.name) + '</span> <b class="' + cls(item.chg) + '">' + sign(item.pct) + '%</b></span>';
+    return '<span class="chip ' + clsName + '">' + head + zt + '<span class="nm">' + esc(item.name) + '</span> <b class="' + cls(item.chg) + '">' + sign(item.pct) + '%</b></span>';
   }
   function row(s) {
     var L = LEADERS[s.code] || {};
     /* Fallback：板块名+涨幅始终显示；即使 pool 没数据也不让 row 整块消失 */
     var head = '<div class="shead"><span class="sname">' + esc(s.name) + '</span><span class="spct ' + cls(s.chg) + '">' + sign(s.pct) + '%</span></div>';
     if (!L.pool || !L.pool.length) return '<div class="srow">' + head + '</div>';
-    /* 按当前涨幅从高到低排序：第一=龙头(涨停梯队/领涨)，第二=中军(容量)，其余=涨停梯队 */
+    /* 涨停池优先识别龙头：先看 pool 里有没有涨停的领头羊（按连板数降序），再按实时涨幅排序 */
     var arr = L.pool.map(function (p) {
       var q = parseLeader(p[0], p[1]);
-      return q ? { code: p[0], name: p[1], pct: q.pct, chg: q.chg, vr: q.vr } : null;
+      return q ? { code: p[0], name: p[1], pct: q.pct, chg: q.chg, vr: q.vr, zt: ZT_MAP[p[0]] || null } : null;
     }).filter(Boolean);
     if (!arr.length) return '<div class="srow">' + head + '<div class="schips"><span class="chip chip-empty">个股行情加载中…</span></div></div>';
-    arr.sort(function (a, b) { return b.pct - a.pct; });
+    arr.sort(function (a, b) {
+      var za = a.zt ? 1 : 0, zb = b.zt ? 1 : 0;
+      if (za !== zb) return zb - za;
+      if (za && zb && a.zt.lbc !== b.zt.lbc) return b.zt.lbc - a.zt.lbc;
+      return b.pct - a.pct;
+    });
     var lead = arr[0];
     var mid  = arr[1] || null;
     var hots = arr.slice(2);
@@ -958,9 +1026,11 @@ function renderSectorsBody(secs, boards) {
   }
 
   el.innerHTML =
-    '<div class="secsub">题材热度榜 · 龙头/中军按盘面涨幅动态排</div>' + top.map(row).join('') +
+    '<div class="secsub">题材热度榜 · 涨停龙头优先</div>' + top.map(row).join('') +
     '<div class="secsub">申万行业涨幅榜</div>' + indTop.map(row).join('') +
-    '<div class="secsub">申万行业领跌</div>' + indBot.map(row).join('');
+    '<div class="secsub">申万行业领跌</div>' + indBot.map(row).join('') +
+    '<div class="secsub">今日涨停板</div>' +
+    '<div class="ztbar">涨停 <span class="zc">' + ZT_CNT + '</span> 家 · 最高 <span class="zc">' + (ZT_MAX_LBC > 1 ? ZT_MAX_LBC + ' 连板' : '1 板') + '</span></div>';
 }
 
 function esc(s) {
@@ -1035,6 +1105,7 @@ function fetchStocksQuote() {
   });
 }
 function fetchSectorsQuote() {
+  lastSectorFetch = Date.now();
   var seq = ++secSeq;
   var codes = SECTORS.concat(BOARDS).map(function (x) { return x.code; }).join(',') + ',' + leaderCodes().join(',');
   addScript('https://qt.gtimg.cn/q=' + codes + '&_=' + Date.now() + seq, function (ok) {
@@ -1042,6 +1113,7 @@ function fetchSectorsQuote() {
     if (!ok) return;
     renderSectors();  // 只刷新板块区
   });
+  fetchLimitUp();     // 联动涨停池（独立一路，互不阻塞）
 }
 /* 兼容旧 load()：仍保留但只是触发两路 */
 function load() {
@@ -1049,28 +1121,30 @@ function load() {
   fetchSectorsQuote();
 }
 
-/* 刷新频率（用户 2026-09-08 明确要求）：
+/* 刷新频率（用户 2026-09-08 要求，2026-09-09 修订）：
    - 持仓个股：秒级（2 秒）
-   - 板块强度 + 大盘强度：15 分钟一次（900000ms）
+   - 板块强度 + 大盘强度 + 涨停池：5 分钟一次（300000ms），基于时间戳防重置
    两路独立计时，互不影响 */
 var STOCK_INTERVAL = 2000;      /* 持仓 2 秒 */
-var SECTOR_INTERVAL = 900000;   /* 板块/大盘 15 分钟 */
-var stockTimer = null, secTimer = null, secCount = 0;
+var SECTOR_INTERVAL = 300000;   /* 板块/大盘/涨停池 5 分钟 */
+var stockTimer = null, secTimer = null, secCount = 0, lastSectorFetch = 0;
 function schedule() {
   clearTimeout(stockTimer);
   if (!isTrading()) { stockTimer = null; return; }
   /* 持仓：交易时段恒定 2 秒 */
   stockTimer = setTimeout(function () { fetchStocksQuote(); schedule(); }, STOCK_INTERVAL);
 }
-/* 板块/大盘独立循环：15 分钟一次 */
+/* 板块/大盘独立循环：基于时间戳，避免 visibilitychange 反复 reset 定时器导致永远不刷新 */
 function scheduleSectors() {
   clearTimeout(secTimer);
   if (!isTrading()) { secTimer = null; return; }
+  var elapsed = Date.now() - lastSectorFetch;
+  var delay = Math.max(0, SECTOR_INTERVAL - elapsed);
   secTimer = setTimeout(function () {
     secCount++;
     fetchSectorsQuote();
     scheduleSectors();
-  }, SECTOR_INTERVAL);
+  }, delay);
 }
 /* 手动刷新板块（下拉/点击时用） */
 function refreshSectorsNow() { fetchSectorsQuote(); }
@@ -1227,10 +1301,12 @@ for (var gi = 0; gi < grpHeads.length; gi++) {
 }
 
 load();
+loadKeys();
 schedule();
 scheduleSectors();
+scheduleKeys();
 document.addEventListener('visibilitychange', function () {
-  if (!document.hidden && isTrading()) { load(); schedule(); scheduleSectors(); }
+  if (!document.hidden && isTrading()) { load(); loadKeys(); schedule(); scheduleSectors(); scheduleKeys(); }
 });
 
 if ('serviceWorker' in navigator) {
