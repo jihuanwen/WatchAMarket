@@ -79,7 +79,9 @@
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 13px; margin-bottom: 8px;
     display: flex; align-items: center; gap: 10px;
+    cursor: pointer;
   }
+  .row:active { background: #23262e; }
   .row .l { flex: 1; min-width: 0; }
   .row .n { font-size: 15px; font-weight: 600; }
   .row .m { font-size: 11px; color: var(--tx3); margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -236,6 +238,37 @@
   .sbadge.lbc { color: #f87171; background: rgba(248,113,113,.15); border-color: rgba(248,113,113,.4); }
   .ztbar .zc { font-weight:700; color:#f87171; font-size:13px; }
 
+  /* ★ 题材热度：前三题材板块（点击展开跟涨票）+ 涨停梯队折叠按钮 */
+  .topic-row { cursor: pointer; }
+  .topic-row:active { background: rgba(255,255,255,0.03); }
+  .ft-box { margin-top: 6px; padding: 4px 8px; border-left: 2px solid #f59e0b; background: rgba(245,158,11,0.06); border-radius: 4px; }
+  .ft-toggle-hint { font-size: 10px; color: #fbbf24; padding: 5px 0 0; opacity: 0.85; }
+  .zt-toggle-wrap { margin-top: 10px; }
+  .zt-toggle { width: 100%; padding: 9px; font-size: 12px; font-weight: 600; color: #fbbf24; background: #14161a; border: 1px solid #3a2f1a; border-radius: 8px; cursor: pointer; font-family: inherit; }
+  .zt-toggle:active { background: #23262e; }
+  .zt-echelon { margin-top: 8px; }
+
+  /* ★ 胜率模型分析弹窗（持仓点击） */
+  .an-state { display:inline-block; font-size:13px; font-weight:700; padding:4px 10px; border-radius:6px; margin:2px 0 8px; }
+  .an-state.xi { color:#34d399; background:#082318; border:1px solid #059669; }
+  .an-state.xc { color:#93c5fd; background:#0b1e3a; border:1px solid #2563eb; }
+  .an-state.ch { color:#f87171; background:#1a0808; border:1px solid #dc2626; }
+  .an-state.la { color:#fbbf24; background:#1a1408; border:1px solid #d97706; }
+  .an-state.wa { color:#c9cdd4; background:#23262e; border:1px solid #4b5563; }
+  .an-conf { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .an-conf .bar { flex:1; height:6px; background:#14161a; border-radius:3px; overflow:hidden; }
+  .an-conf .fill { height:100%; border-radius:3px; }
+  .an-conf .num { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; min-width:34px; text-align:right; }
+  .an-sec { font-size:11px; color:var(--tx3); margin:10px 0 3px; }
+  .an-sig { font-size:12px; padding:3px 0; border-bottom:1px dashed var(--line); line-height:1.5; }
+  .an-sig:last-child { border-bottom:none; }
+  .an-sig .k { color:var(--tx2); margin-right:4px; }
+  .an-sug { font-size:12.5px; line-height:1.65; padding:8px 10px; background:#14161a; border-radius:8px; margin-top:6px; }
+  .an-metric { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
+  .an-metric .m { font-size:10.5px; color:var(--tx2); background:#14161a; border:1px solid var(--line); border-radius:5px; padding:2px 6px; font-variant-numeric:tabular-nums; }
+  .an-metric .m b { color:var(--tx); font-weight:600; }
+  .an-loading { text-align:center; color:var(--tx3); padding:26px 0; font-size:13px; }
+
   /* 异动 / 关键位 提醒标签 */
   .alerts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .alert { font-size: 11px; padding: 2px 7px; border-radius: 5px; border: 1px solid; font-weight: 600; }
@@ -295,10 +328,11 @@
   <div class="foot">
     数据源：腾讯行情 qt.gtimg.cn，与券商行情同源，延迟约 0-3 秒。<br>
     交易时段 5 秒刷新；休市 / 周末暂停自动刷新（点「刷新」整页重载、获取最新版本）。<br>
-    顶部「大盘强度 / 板块强度 / 题材热度」为可折叠分组，点击标题展开收起；大盘强度按指数+行业宽度+趋势打分；板块强度分「题材热度榜（30 个细分题材/申万二级按涨幅+换手综合分排，取前 5，每个含龙头+中军+涨停梯队共 4-5 只）」与「申万 31 行业涨幅榜」两区。「题材热度」分组显示「前三题材板块：涨停龙头（参考）+ 跟涨票 5 只（东财成分股剔除涨停，可介入）+ 涨停梯队（按封板时间）」。板块为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
+    顶部「大盘强度 / 板块强度 / 题材热度」为可折叠分组，点击标题展开收起；大盘强度按指数+行业宽度+趋势打分；板块强度分「今日题材热点（连板强度排行）」「申万行业涨幅榜（前 3）」「申万行业领跌」「今日涨停板」。<br>
+    「题材热度」分组显示「前三题材板块的涨停板（龙头+中军+涨停梯队，点击板块行展开跟涨票）+ 涨停梯队折叠按钮（底部）」。板块为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
     「开盘至今」识别高开低走 / 低开高走；「超额」= 个股涨跌幅 − 沪指涨跌幅。<br>
     每只「关键位」为 AI 按最新收盘技术形态自动给出的操作建议，可在「成本&关键位」里修改，留空则恢复默认。<br>
-    点右上角 + 输入代码或名称添加持仓；点持仓行尾 × 移除（持仓只存本机，不上传）。<br>
+    点持仓行（除 ×）弹出「胜率模型」：按量能+均线+MACD+蜡烛形态判断当前处于洗盘 / 吸筹 / 出货 / 拉升 / 观望；点行尾 × 移除（持仓只存本机，不上传）。<br>
     添加到主屏幕：Safari 点分享 → 添加到主屏幕；Chrome 菜单 → 添加到主屏幕。之后可像 App 全屏打开。<br>
     仅供个人参考，不构成投资建议。
   </div>
@@ -329,6 +363,14 @@
     <input id="addInput" placeholder="代码或名称，如 300857 / 协创数据" autocomplete="off">
     <div id="addResults"></div>
     <div class="rowb"><button id="addCancel">取消</button></div>
+  </div>
+</div>
+
+<div class="mask" id="anMask">
+  <div class="dlg">
+    <h3 id="anTitle">胜率模型分析</h3>
+    <div id="anBody"><div class="an-loading">分析中…</div></div>
+    <div class="rowb"><button id="anClose">关闭</button></div>
   </div>
 </div>
 
@@ -732,6 +774,215 @@ function fetchKline(code, cb) {
   document.body.appendChild(s);
 }
 
+/* ============================================================
+   ★ 胜率模型：判断持仓当前处于 洗盘 / 吸筹 / 出货 / 拉升 / 观望
+   ============================================================
+   输入：rows（前复权日线，含 open/close/high/low/vol）+ 实时价/涨跌
+   模型：多信号加权打分（量能 + 均线 + MACD + 蜡烛形态 + 区间位置），
+         取最高分状态；最高分过低或与次高分接近 → 判「观望」。
+   ⚠️ 为启发式技术分析，置信度仅供参考，非真实统计胜率。 */
+function analyzeWinRate(rows, curPrice, curPct) {
+  var n = rows.length;
+  var closes = rows.map(function (r) { return r.close; });
+  var vols = rows.map(function (r) { return r.vol || 0; });
+  var lastClose = closes[n - 1];
+  var cur = (curPrice && curPrice > 0) ? curPrice : lastClose;
+
+  function ma(arr, k) {
+    if (arr.length < k) return null;
+    var s = arr.slice(-k), t = 0;
+    for (var i = 0; i < s.length; i++) t += s[i];
+    return t / s.length;
+  }
+  function ema(vals, k) {
+    var a = 2 / (k + 1), out = [vals[0]];
+    for (var i = 1; i < vals.length; i++) out.push(vals[i] * a + out[i - 1] * (1 - a));
+    return out;
+  }
+  function avgVol(k) {
+    var s = vols.slice(-k), t = 0;
+    for (var i = 0; i < s.length; i++) t += s[i];
+    return t / s.length;
+  }
+
+  var ma5 = ma(closes, 5), ma10 = ma(closes, 10), ma20 = ma(closes, 20), ma60 = ma(closes, 60);
+
+  /* MACD */
+  var e12 = ema(closes, 12), e26 = ema(closes, 26);
+  var dif = [], deaArr = [];
+  for (var i = 0; i < n; i++) dif.push(e12[i] - e26[i]);
+  deaArr = ema(dif, 9);
+  var difNow = dif[n - 1], difPrev = dif[n - 2];
+  var deaNow = deaArr[n - 1], deaPrev = deaArr[n - 2];
+  var macdGolden = (difPrev <= deaPrev) && (difNow > deaNow);   /* 近一根金叉 */
+  var macdBull = difNow > deaNow && difNow > 0;
+
+  /* 量能 */
+  var v5 = avgVol(5), v20 = avgVol(20), v3 = avgVol(3);
+  var volRatio = v20 > 0 ? v5 / v20 : 1;      /* 近5日 vs 近20日 */
+  var vol3Ratio = v20 > 0 ? v3 / v20 : 1;     /* 近3日 vs 近20日 */
+
+  /* 近 5 日蜡烛形态 */
+  var upDays = 0, dnDays = 0, longUpShadow = 0, longLowShadow = 0, bigYang = 0, bigYin = 0;
+  for (var j = n - 5; j < n; j++) {
+    var r = rows[j];
+    var o = r.open, c = r.close, h = r.high, l = r.low;
+    var range = (h - l) || 1;
+    var body = c - o;
+    if (c >= o) upDays++; else dnDays++;
+    if ((h - Math.max(o, c)) / range > 0.45) longUpShadow++;   /* 长上影：冲高回落 */
+    if ((Math.min(o, c) - l) / range > 0.45) longLowShadow++;  /* 长下影：下探收回 */
+    if (body > 0 && body / o > 0.045) bigYang++;
+    if (body < 0 && -body / o > 0.045) bigYin++;
+  }
+
+  /* 近 20 日区间 */
+  var hi20 = -Infinity, lo20 = Infinity, hi20c = -Infinity;
+  for (var k = n - 20; k < n; k++) {
+    if (rows[k].high > hi20) hi20 = rows[k].high;
+    if (rows[k].low < lo20) lo20 = rows[k].low;
+    if (closes[k] > hi20c) hi20c = closes[k];
+  }
+  var range20 = lo20 > 0 ? (hi20 - lo20) / lo20 * 100 : 0;   /* 20日振幅% */
+  var nearHi20c = hi20c > 0 ? (cur / hi20c - 1) * 100 : 0;    /* 距20日最高收盘（负=回落） */
+
+  /* 放量阴线（近3日） */
+  var volYin = 0;
+  for (var m = n - 3; m < n; m++) {
+    if (rows[m].close < rows[m].open && rows[m].vol > v20 * 1.3) volYin++;
+  }
+  var pulledBack = cur < ma5;   /* 是否已回踩 5 日线下方（洗盘/出货的分界关键） */
+
+  /* ---- 加权打分（每个信号带理由）---- */
+  var score = { '出货': 0, '拉升': 0, '洗盘': 0, '吸筹': 0 };
+  var reasons = { '出货': [], '拉升': [], '洗盘': [], '吸筹': [] };
+  function add(st, w, reason) { score[st] += w; reasons[st].push(reason); }
+
+  /* 出货（放量滞涨/冲高回落/放量下跌） */
+  if (volRatio >= 1.3) add('出货', 2, '近5日明显放量（量比' + volRatio.toFixed(1) + '）');
+  if (volYin >= 1) add('出货', 2, '近3日出现' + volYin + '根放量阴线');
+  if (longUpShadow >= 1) add('出货', 2, '近5日有' + longUpShadow + '根长上影（冲高回落）');
+  if (cur < ma5) add('出货', 2, '现价跌破5日线');
+  if (cur < ma10) add('出货', 1, '现价跌破10日线');
+  if (dnDays >= 3) add('出货', 1, '近5日下跌' + dnDays + '天');
+  if (nearHi20c < -5 && volRatio >= 1.1) add('出货', 2, '距20日高点回落' + Math.abs(nearHi20c).toFixed(0) + '%且放量');
+
+  /* 拉升（放量突破/多头排列/金叉） */
+  if (nearHi20c >= -0.5) add('拉升', 3, '现价逼近/创20日新高');
+  if (volRatio >= 1.2) add('拉升', 2, '放量配合（量比' + volRatio.toFixed(1) + '）');
+  if (macdBull) add('拉升', 2, 'MACD 多头（DIF>DEA 且 DIF>0）');
+  if (macdGolden) add('拉升', 1, 'MACD 金叉');
+  if (cur > ma5 && ma5 > ma10 && ma10 > ma20) add('拉升', 2, '均线多头排列');
+  if (bigYang >= 1) add('拉升', 1, '近5日有' + bigYang + '根大阳线');
+
+  /* 洗盘（多头趋势中的缩量回调——必须已回踩 5 日线，否则与拉升混淆） */
+  if (cur > ma20 && pulledBack) add('洗盘', 3, '多头趋势中回踩5日线下方');
+  if (pulledBack && cur > ma10) add('洗盘', 2, '回踩守住10日线');
+  if (vol3Ratio < 0.8) add('洗盘', 2, '近3日缩量（量比' + vol3Ratio.toFixed(1) + '）');
+  if (cur > ma20 && dnDays >= 2 && vol3Ratio < 1) add('洗盘', 2, '缩量阴线回调（洗盘特征）');
+  if (longLowShadow >= 1) add('洗盘', 1, '近5日有' + longLowShadow + '根长下影（下探收回）');
+
+  /* 吸筹（横盘缩量低位收集） */
+  if (range20 < 15) add('吸筹', 3, '近20日横盘（振幅' + range20.toFixed(0) + '%）');
+  if (volRatio < 0.9) add('吸筹', 2, '持续缩量（量比' + volRatio.toFixed(1) + '）');
+  if (cur > ma20) add('吸筹', 2, '站上20日线');
+  if (upDays >= 3) add('吸筹', 2, '近5日阳线占' + upDays + '天');
+  if (longLowShadow >= 2) add('吸筹', 2, '近5日' + longLowShadow + '根长下影（低位承接）');
+  if (Math.abs((cur - ma20) / ma20) < 0.03) add('吸筹', 1, '现价贴近20日线（回踩不破）');
+
+  /* 选最高分状态 */
+  var order = ['出货', '拉升', '洗盘', '吸筹'].map(function (k) { return { k: k, v: score[k] }; })
+    .sort(function (a, b) { return b.v - a.v; });
+  var top = order[0], second = order[1];
+  var state = top.k;
+  if (top.v < 4 || (top.v - second.v) <= 1) state = '观望';
+
+  /* 置信度（启发式） */
+  var confidence;
+  if (state === '观望') {
+    confidence = 40;
+  } else {
+    confidence = Math.round(Math.min(90, 45 + top.v * 8));
+    if (top.v - second.v <= 2) confidence = Math.round(confidence * 0.8);
+  }
+
+  /* 建议 */
+  var sug = {
+    '出货': '主力有出货迹象（放量滞涨/回落）。建议：不追高，反弹减仓，跌破10/20日线按纪律离场。',
+    '拉升': '放量突破/多头启动，短线动能强。建议：持有为主，回踩不破关键位可持有；追高需谨慎，防冲高回落。',
+    '洗盘': '多头趋势中的缩量回调，大概率是洗盘。建议：不因单日下跌恐慌，回踩10/20日线企稳可持有，跌破20日线则止损。',
+    '吸筹': '横盘缩量、低位承接，主力吸筹特征。建议：可关注，放量突破平台时才是介入点；未放量前观望为主。',
+    '观望': '信号矛盾或不足，方向不明。建议：以盘中确认与关键位纪律为准，不宜凭此信号下单。'
+  }[state];
+
+  var clsMap = { '洗盘': 'xi', '吸筹': 'xc', '出货': 'ch', '拉升': 'la', '观望': 'wa' };
+
+  return {
+    state: state, cls: clsMap[state], confidence: confidence,
+    reasons: state === '观望' ? ['信号不足或矛盾，暂无法可靠分类'] : reasons[state],
+    suggestion: sug,
+    detail: {
+      ma5: ma5, ma10: ma10, ma20: ma20, ma60: ma60,
+      difNow: difNow, deaNow: deaNow,
+      volRatio: volRatio, vol3Ratio: vol3Ratio,
+      upDays: upDays, dnDays: dnDays,
+      longUpShadow: longUpShadow, longLowShadow: longLowShadow,
+      range20: range20, nearHi20: nearHi20c,
+      curPct: curPct
+    }
+  };
+}
+
+function renderAnalysis(r, stock) {
+  var d = r.detail;
+  function num(v) { return v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(2); }
+  var confColor = r.confidence >= 70 ? '#34d399' : (r.confidence >= 50 ? '#fbbf24' : '#c9cdd4');
+  var reasonsHtml = r.reasons.map(function (s) {
+    return '<div class="an-sig"><span class="k">·</span>' + esc(s) + '</div>';
+  }).join('');
+  var metrics =
+    '<div class="an-metric">' +
+      '<span class="m">MA5 <b>' + num(d.ma5) + '</b></span>' +
+      '<span class="m">MA10 <b>' + num(d.ma10) + '</b></span>' +
+      '<span class="m">MA20 <b>' + num(d.ma20) + '</b></span>' +
+      '<span class="m">MA60 <b>' + num(d.ma60) + '</b></span>' +
+      '<span class="m">DIF <b>' + num(d.difNow) + '</b></span>' +
+      '<span class="m">DEA <b>' + num(d.deaNow) + '</b></span>' +
+      '<span class="m">量比5/20 <b>' + d.volRatio.toFixed(2) + '</b></span>' +
+      '<span class="m">20日振幅 <b>' + d.range20.toFixed(0) + '%</b></span>' +
+      '<span class="m">距20日高 <b class="' + cls(d.nearHi20) + '">' + (d.nearHi20 > 0 ? '+' : '') + d.nearHi20.toFixed(1) + '%</b></span>' +
+      '<span class="m">今日 <b class="' + cls(d.curPct || 0) + '">' + sign(d.curPct || 0) + '%</b></span>' +
+    '</div>';
+  return '<div class="an-state ' + r.cls + '">' + r.state + '</div>' +
+         '<div class="an-conf">' +
+           '<div class="bar"><div class="fill" style="width:' + r.confidence + '%;background:' + confColor + '"></div></div>' +
+           '<span class="num">' + r.confidence + '%</span>' +
+         '</div>' +
+         '<div class="note" style="padding:0 0 4px">模型置信度（启发式技术分析，非真实统计胜率）</div>' +
+         '<div class="an-sec">关键信号</div>' + reasonsHtml +
+         '<div class="an-sec">关键指标</div>' + metrics +
+         '<div class="an-sec">操作建议</div><div class="an-sug">' + esc(r.suggestion) + '</div>';
+}
+
+function showAnalysis(code) {
+  var stock = STOCKS.filter(function (x) { return x.code === code; })[0];
+  if (!stock) return;
+  var anMask = document.getElementById('anMask');
+  var anBody = document.getElementById('anBody');
+  document.getElementById('anTitle').textContent = stock.name + ' · ' + code.slice(2) + ' · 胜率模型';
+  anMask.className = 'mask show';
+  anBody.innerHTML = '<div class="an-loading">正在拉取日线并计算…</div>';
+  var parsed = parse(stock);        /* 实时行情（现价/涨跌） */
+  fetchKline(code, function (rows) {
+    if (!rows || rows.length < 30) {
+      anBody.innerHTML = '<div class="an-loading">日线数据未取到（可能休市/网络异常），请稍后重试</div>';
+      return;
+    }
+    var r = analyzeWinRate(rows, parsed ? parsed.price : null, parsed ? parsed.pct : null);
+    anBody.innerHTML = renderAnalysis(r, stock);
+  });
+}
+
 function loadKeys() {
   /* 对所有持仓动态算关键位（DEFAULT_KEYS 只作兜底，不再阻断 AUTO_KEYS 计算） */
   var todo = STOCKS.filter(function (x) {
@@ -962,7 +1213,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v24', BUILD_DATE = '2026-09-09 15:30';
+var BUILD_ID = 'v25', BUILD_DATE = '2026-09-09 15:45';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -1249,6 +1500,21 @@ function hotRow(h) {
               (hots.length ? '<span class="chip-sep">｜</span>' + hots.slice(0, 3).map(function (x) { return ztChipHtml(x); }).join('') : '');
   return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
 }
+/* 涨停梯队折叠状态（跨刷新保留） */
+var ZT_ECHELON_SHOWN = false;
+var TOPIC_EXPANDED = {};   /* 板块 idx -> true（已展开跟涨票） */
+function fillFt(box, list) {
+  if (!box) return;
+  if (!list || !list.length) {
+    box.innerHTML = '<div class="note">暂无未涨停的跟涨票（该题材成分股多已封板或数据未取到）</div>';
+    return;
+  }
+  box.innerHTML = list.map(function (p) {
+    return '<div class="zt-row ft-row"><span class="ft-tag">跟涨</span>' +
+           '<span class="nm">' + esc(p.name) + '</span> <span class="hy">' + esc(p.code.slice(2)) + '</span>' +
+           ' <b class="z">' + sign(p.pct) + '%</b></div>';
+  }).join('');
+}
 function renderTopicsBody() {
   var el = document.getElementById('topicBody');
   if (!el) return;
@@ -1256,37 +1522,43 @@ function renderTopicsBody() {
     el.innerHTML = '<div class="note">' + (TOPICS_SCORES.length ? '加载涨停池…' : '聚合中…') + '</div>';
     return;
   }
-  /* 涨停梯队：按涨停时间升序（先涨停=先封板=最强信号），全部涨停股铺开 */
+  /* 涨停梯队：按涨停时间升序（先涨停=先封板=最强信号），默认折叠由按钮控制 */
   var sorted = ZT_LIST.slice().sort(function (a, b) {
     if (a.lbt !== b.lbt) return a.lbt - b.lbt;
     return (b.lbc || 1) - (a.lbc || 1);
   });
 
-  /* ===== 前三题材板块 · 跟涨票（2026-09-09 用户要求：别全列涨停股，要跟涨票）=====
-     取 hybk 聚合的 TOPICS_SCORES 前 3 名（按 score = 涨停家数×5 + 平均涨幅 + 最高连板×0.5 排序）。
+  /* ===== 前三题材板块 · 涨停板（点击展开跟涨票）=====
+     取 hybk 聚合的 TOPICS_SCORES 前 3 名（score = 涨停家数×5 + 平均涨幅 + 最高连板×0.5）。
      每个题材：
        - 板块名 + 涨停数 + 最高连板 + 板块指数实时涨跌幅
-       - 涨停龙头 1 只（参考：谁在领涨封板）
-       - ★ 跟涨票 5 只：东财 clist 成分股按涨幅降序，剔除已涨停股，取前 5（可介入） */
+       - 板块内涨停板（龙头 + 中军 + 涨停梯队 chips，保留原风格）
+       - ★ 点击板块行 → 展开「跟涨票」（东财 clist 成分股剔除涨停，未涨停·可介入） */
   var top3 = TOPICS_SCORES.slice(0, 3);
   var top3Html = '';
   if (top3.length) {
-    top3Html = '<div class="secsub accent">前三题材板块 · 跟涨票</div>';
+    top3Html = '<div class="secsub accent">前三题材板块 · 涨停板（点击展开跟涨票）</div>';
     top3.forEach(function (h, idx) {
       var ptCode = HYBK_TO_PT[h.hybk];
       var secQ = ptCode ? parseSector({ code: ptCode, name: h.hybk }) : null;
       var secPct = secQ ? sign(secQ.pct) : '—';
       var secCls = secQ ? cls(secQ.chg) : 'flat';
       var lbcTag = h.maxLbc > 1 ? '<span class="sbadge lbc">最高' + h.maxLbc + '连板</span>' : '';
-      /* 涨停龙头：ztList 已按 lbt 升序，第 0 只即最早封板龙头 */
-      var lead = h.ztList[0];
-      var leadRow = lead ?
-        '<div class="zt-row"><span class="zt-tag">涨停</span>' +
-        (lead.lbt ? '<span class="lbt">' + formatLbt(lead.lbt) + '</span>' : '') +
-        '<span class="nm">' + esc(lead.name) + '</span> <span class="hy">龙头</span>' +
-        ' <b class="z">' + sign(lead.pct) + '%</b></div>' : '';
+      /* 涨停板 chips：龙头（最早封板）+ 中军（最高连板非龙头）+ 其余涨停梯队 */
+      var list = h.ztList;
+      var lead = list[0];
+      var mid = null;
+      for (var i = 1; i < list.length; i++) {
+        if (list[i].lbc > (mid ? mid.lbc : 0)) mid = list[i];
+      }
+      if (mid && mid.code === lead.code) mid = list[1] || null;
+      var hots = list.filter(function (x) { return x !== lead && x !== mid; });
+      var chips = ztChipHtml(lead, '龙') +
+                  (mid ? ztChipHtml(mid, '中') : '') +
+                  (hots.length ? '<span class="chip-sep">｜</span>' + hots.map(function (x) { return ztChipHtml(x); }).join('') : '');
+      var expanded = TOPIC_EXPANDED[idx];
       top3Html +=
-        '<div class="srow" style="padding:6px 0 8px">' +
+        '<div class="srow topic-row" data-idx="' + idx + '" data-hybk="' + esc(h.hybk) + '" style="padding:6px 0 8px">' +
           '<div class="shead">' +
               '<span class="sname">' + (idx + 1) + '. ' + esc(h.hybk) + '</span>' +
               '<span class="spct ' + secCls + '">' + secPct + (secQ ? '%' : '') + '</span>' +
@@ -1294,40 +1566,37 @@ function renderTopicsBody() {
           '<div class="schips">' +
             '<span class="sbadge">' + h.count + '家涨停</span>' + lbcTag +
           '</div>' +
-          leadRow +
-          '<div class="ft-hint">跟涨票（未涨停·可介入）</div>' +
-          '<div id="ft-' + idx + '" data-hybk="' + esc(h.hybk) + '"><div class="note">加载跟涨票…</div></div>' +
+          '<div class="schips">' + chips + '</div>' +
+          '<div class="ft-box" id="ft-' + idx + '" style="display:' + (expanded ? 'block' : 'none') + '"><div class="note">加载跟涨票…</div></div>' +
+          '<div class="ft-toggle-hint">' + (expanded ? '▴ 收起跟涨票' : '▾ 点击展开跟涨票（未涨停·可介入）') + '</div>' +
         '</div>';
     });
   }
 
   var tsTxt = TOPICS_AT ? '<span class="vd">· ' + fmtTimeShort(TOPICS_AT) + '</span>' : '';
+  var echelonHtml = sorted.slice(0, 30).map(function (p) {
+    var lbcTag = p.lbc > 1 ? ('<span class="zt-tag">' + p.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
+    var lbt = p.lbt ? ('<span class="lbt">' + formatLbt(p.lbt) + '</span>') : '';
+    var hy = p.hybk ? '<span class="hy">' + esc(p.hybk) + '</span>' : '';
+    return '<div class="zt-row">' + lbcTag + lbt + '<span class="nm">' + esc(p.name) + '</span> ' + hy + ' <b class="z">' + sign(p.pct) + '%</b></div>';
+  }).join('');
+
   el.innerHTML =
     top3Html +
-    '<div class="secsub accent">涨停梯队 · 按封板时间 ' + tsTxt + '</div>' +
-    sorted.slice(0, 30).map(function (p) {
-      var lbcTag = p.lbc > 1 ? ('<span class="zt-tag">' + p.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
-      var lbt = p.lbt ? ('<span class="lbt">' + formatLbt(p.lbt) + '</span>') : '';
-      var hy = p.hybk ? '<span class="hy">' + esc(p.hybk) + '</span>' : '';
-      return '<div class="zt-row">' + lbcTag + lbt + '<span class="nm">' + esc(p.name) + '</span> ' + hy + ' <b class="z">' + sign(p.pct) + '%</b></div>';
-    }).join('');
+    '<div class="zt-toggle-wrap">' +
+      '<button class="zt-toggle" id="ztToggle">' + (ZT_ECHELON_SHOWN ? '收起涨停梯队' : '显示涨停梯队 · ' + ZT_CNT + '家') + '</button>' +
+      '<div class="zt-echelon" id="ztEchelon" style="display:' + (ZT_ECHELON_SHOWN ? 'block' : 'none') + '">' +
+        '<div class="secsub accent">涨停梯队 · 按封板时间 ' + tsTxt + '</div>' +
+        echelonHtml +
+      '</div>' +
+    '</div>';
 
-  /* 异步填充前三题材的「跟涨票」（东财 clist 成分股，剔除涨停股） */
+  /* 异步填充前三题材的「跟涨票」（东财 clist 成分股，剔除涨停股；结果缓存，展开即显示） */
   if (top3.length) {
     loadEmBoardMap(function () {
       top3.forEach(function (h, idx) {
         fetchFollowStocks(h.hybk, function (list) {
-          var box = document.getElementById('ft-' + idx);
-          if (!box) return;
-          if (!list || !list.length) {
-            box.innerHTML = '<div class="note">暂无未涨停的跟涨票（该题材成分股多已封板或数据未取到）</div>';
-            return;
-          }
-          box.innerHTML = list.map(function (p) {
-            return '<div class="zt-row ft-row"><span class="ft-tag">跟涨</span>' +
-                   '<span class="nm">' + esc(p.name) + '</span> <span class="hy">' + esc(p.code.slice(2)) + '</span>' +
-                   ' <b class="z">' + sign(p.pct) + '%</b></div>';
-          }).join('');
+          fillFt(document.getElementById('ft-' + idx), list);
         });
       });
     });
@@ -1358,7 +1627,7 @@ function renderSectorsBody(secs) {
 
   /* 申万 31 一级行业涨幅榜 */
   var ind = secs.slice().sort(function (a, b) { return b.pct - a.pct; });
-  var indTop = ind.slice(0, 5);
+  var indTop = ind.slice(0, 3);
   var indBot = ind.slice(-3).reverse();
 
   /* 涨停股 chip（hybk 聚合里用） */
@@ -1625,6 +1894,56 @@ document.getElementById('list').addEventListener('click', function (e) {
   var hit = STOCKS.filter(function (x) { return x.code === code; })[0];
   var nm = hit ? hit.name : code.slice(2);
   if (confirm('确定移除「' + nm + '」吗？')) removeStock(code);
+});
+
+/* 持仓行点击 → 胜率模型分析（点 × 仍为移除，不触发分析） */
+document.getElementById('list').addEventListener('click', function (e) {
+  if (e.target.closest && e.target.closest('.del')) return;
+  var row = e.target.closest ? e.target.closest('.row') : null;
+  if (!row) return;
+  var del = row.querySelector('.del');
+  var code = del ? del.dataset.code : null;
+  if (!code) return;
+  showAnalysis(code);
+});
+
+/* 胜率模型弹窗关闭 */
+document.getElementById('anClose').onclick = function () { document.getElementById('anMask').className = 'mask'; };
+document.getElementById('anMask').onclick = function (e) {
+  if (e.target === document.getElementById('anMask')) document.getElementById('anMask').className = 'mask';
+};
+
+/* 题材热度：点击板块展开/收起跟涨票；点击按钮折叠/展开涨停梯队 */
+document.getElementById('topicBody').addEventListener('click', function (e) {
+  var toggle = e.target.closest ? e.target.closest('#ztToggle') : null;
+  if (toggle) {
+    var box = document.getElementById('ztEchelon');
+    var shown = box.style.display !== 'none';
+    box.style.display = shown ? 'none' : 'block';
+    toggle.textContent = shown ? ('显示涨停梯队 · ' + ZT_CNT + '家') : '收起涨停梯队';
+    ZT_ECHELON_SHOWN = !shown;
+    return;
+  }
+  var row = e.target.closest ? e.target.closest('.topic-row') : null;
+  if (!row) return;
+  var idx = row.dataset.idx;
+  var hybk = row.dataset.hybk;
+  var box = document.getElementById('ft-' + idx);
+  if (!box) return;
+  var isShown = box.style.display !== 'none';
+  if (isShown) {
+    box.style.display = 'none';
+    row.querySelector('.ft-toggle-hint').textContent = '▾ 点击展开跟涨票（未涨停·可介入）';
+    delete TOPIC_EXPANDED[idx];
+  } else {
+    box.style.display = 'block';
+    row.querySelector('.ft-toggle-hint').textContent = '▴ 收起跟涨票';
+    TOPIC_EXPANDED[idx] = true;
+    /* 懒加载：若尚未取到，触发拉取 */
+    if (!EM_FOLLOW[hybk]) {
+      loadEmBoardMap(function () { fetchFollowStocks(hybk, function (list) { fillFt(box, list); }); });
+    }
+  }
 });
 
 /* 添加持仓：顶部 + 搜索 */
