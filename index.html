@@ -220,6 +220,10 @@
   .chip-sep  { font-size: 10px; color: var(--tx3); padding: 0 2px; }
 .chip-empty { color: var(--tx3); font-size: 11px; padding: 4px 8px; border-style: dashed; }
   .zt-tag { font-size: 9px; font-weight: 700; color: #fff; background: #dc2626; border-radius: 3px; padding: 1px 3px; margin-right: 3px; line-height: 1.3; }
+  /* ★ 跟涨票标签（未涨停、可介入的强势股，琥珀色区别于涨停红） */
+  .ft-tag { font-size: 9px; font-weight: 700; color: #fff; background: #f59e0b; border-radius: 3px; padding: 1px 3px; margin-right: 3px; line-height: 1.3; }
+  .ft-hint { font-size: 10px; color: var(--tx3); padding: 2px 0 3px; }
+  .ft-row .z { color: #fb7185; }
   .ztbar { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--tx2); margin-top:4px; flex-wrap:wrap; }
   /* ★ 涨停股专用 chip（题材热点榜用） */
   .chip-zt  { background: linear-gradient(135deg, rgba(220,38,38,.18), rgba(220,38,38,.06)); border-color: rgba(220,38,38,.45); color: #fecaca; }
@@ -291,7 +295,7 @@
   <div class="foot">
     数据源：腾讯行情 qt.gtimg.cn，与券商行情同源，延迟约 0-3 秒。<br>
     交易时段 5 秒刷新；休市 / 周末暂停自动刷新（点「刷新」整页重载、获取最新版本）。<br>
-    顶部「大盘强度 / 板块强度 / 题材热度」为可折叠分组，点击标题展开收起；大盘强度按指数+行业宽度+趋势打分；板块强度分「题材热度榜（30 个细分题材/申万二级按涨幅+换手综合分排，取前 5，每个含龙头+中军+涨停梯队共 4-5 只）」与「申万 31 行业涨幅榜」两区。「题材热度」分组显示「前三题材板块 + 各自 5 只强势个股（动态从涨停池 hybk 聚合）+ 涨停梯队（按封板时间）」。板块为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
+    顶部「大盘强度 / 板块强度 / 题材热度」为可折叠分组，点击标题展开收起；大盘强度按指数+行业宽度+趋势打分；板块强度分「题材热度榜（30 个细分题材/申万二级按涨幅+换手综合分排，取前 5，每个含龙头+中军+涨停梯队共 4-5 只）」与「申万 31 行业涨幅榜」两区。「题材热度」分组显示「前三题材板块：涨停龙头（参考）+ 跟涨票 5 只（东财成分股剔除涨停，可介入）+ 涨停梯队（按封板时间）」。板块为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
     「开盘至今」识别高开低走 / 低开高走；「超额」= 个股涨跌幅 − 沪指涨跌幅。<br>
     每只「关键位」为 AI 按最新收盘技术形态自动给出的操作建议，可在「成本&关键位」里修改，留空则恢复默认。<br>
     点右上角 + 输入代码或名称添加持仓；点持仓行尾 × 移除（持仓只存本机，不上传）。<br>
@@ -958,7 +962,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v23', BUILD_DATE = '2026-09-09 14:58';
+var BUILD_ID = 'v24', BUILD_DATE = '2026-09-09 15:30';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -1039,6 +1043,83 @@ function fetchLimitUp() {
     '&ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=300&sort=fbt%3Aasc&date=' + todayStr();
   s.onerror = function () { s.remove(); };
   document.body.appendChild(s);
+}
+
+/* ===== 东方财富板块成分股 → 「跟涨票」（2026-09-09 用户要求）=====
+   涨停池里全是已涨停的股（买不进去），用户要的是「跟涨票」——同题材板块内
+   未涨停、但涨幅居前、跟随板块走强的个股，才有可操作性。
+   数据源：东方财富 push2 clist 接口（JSONP，与 push2ex 涨停池同机制）：
+     - 板块列表接口  fs=m:90+t:2(行业) / m:90+t:3(概念) → f12=BK码 f14=板块名
+     - 成分股接口    fs=b:BK码 → f12=6位代码 f14=名称 f2=最新价 f3=涨跌幅(降序)
+   ⚠️ 沙箱 curl 被东财风控拦截，但浏览器端(WebFetch/用户手机)可正常访问。 */
+var EM_BK_MAP = {}, EM_BK_LOADING = false, EM_SEQ = 0, EM_FOLLOW = {};
+
+function mkAcode(c6) {
+  /* 6位代码 → 带市场前缀（东财 clist 只返回 6 位代码） */
+  if (!c6) return '';
+  var ch = c6.charAt(0);
+  if (ch === '6' || ch === '9') return 'sh' + c6;
+  if (ch === '0' || ch === '3' || ch === '2') return 'sz' + c6;
+  if (ch === '8' || ch === '4') return 'bj' + c6;
+  return 'sh' + c6;
+}
+
+function emJsonp(url, onDone) {
+  var cb = '__em' + (++EM_SEQ);
+  window[cb] = function (d) {
+    try { delete window[cb]; } catch (e) {}
+    onDone(d);
+  };
+  var s = document.createElement('script');
+  s.src = url + '&cb=' + cb;
+  s.onerror = function () { try { delete window[cb]; } catch (e) {} onDone(null); s.remove(); };
+  document.body.appendChild(s);
+}
+
+function loadEmBoardMap(onReady) {
+  /* 拉行业 + 概念板块列表，建立「板块名 → BK码」映射，覆盖涨停池 hybk 名 */
+  if (EM_BK_LOADING) return;
+  EM_BK_LOADING = true;
+  var pending = 2;
+  function build(d) {
+    if (!d || !d.data) return;
+    var diff = d.data.diff || [];
+    for (var i = 0; i < diff.length; i++) {
+      var it = diff[i];
+      if (it.f12 && it.f14 && !EM_BK_MAP[it.f14]) EM_BK_MAP[it.f14] = it.f12;
+    }
+  }
+  function fin() { if (--pending === 0) { EM_BK_LOADING = false; onReady && onReady(); } }
+  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
+  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
+}
+
+function fetchFollowStocks(hybk, onDone) {
+  /* 取某题材的「跟涨票」：成分股按涨幅降序，剔除已涨停股，取前 5 只未涨停 */
+  if (EM_FOLLOW[hybk]) { onDone(EM_FOLLOW[hybk]); return; }
+  var bk = EM_BK_MAP[hybk];
+  if (!bk) {
+    /* 板块映射未加载或该 hybk 无对应 BK 码 → 重试加载一次 */
+    if (!EM_BK_LOADING) loadEmBoardMap(function () { fetchFollowStocks(hybk, onDone); });
+    else onDone(null);
+    return;
+  }
+  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=40&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:' + bk + '&fields=f12,f14,f2,f3', function (d) {
+    if (!d || !d.data) { onDone(null); return; }
+    var diff = d.data.diff || [];
+    var list = [];
+    for (var i = 0; i < diff.length; i++) {
+      var it = diff[i];
+      var code = mkAcode(it.f12);
+      if (ZT_MAP[code]) continue;      /* 剔除今日涨停股（买不进去） */
+      var pct = it.f3 || 0;
+      if (pct <= 0) break;              /* 涨幅降序，到 <=0 就停止（不再算跟涨） */
+      list.push({ code: code, name: it.f14, pct: pct, price: it.f2 });
+      if (list.length >= 5) break;
+    }
+    EM_FOLLOW[hybk] = list;
+    onDone(list);
+  });
 }
 
 /* 沪指日线 → 压力/支撑（缓存一次） */
@@ -1181,38 +1262,29 @@ function renderTopicsBody() {
     return (b.lbc || 1) - (a.lbc || 1);
   });
 
-  /* ===== 前三题材板块 · 5只强势个股（用户 2026-09-09 要求）=====
+  /* ===== 前三题材板块 · 跟涨票（2026-09-09 用户要求：别全列涨停股，要跟涨票）=====
      取 hybk 聚合的 TOPICS_SCORES 前 3 名（按 score = 涨停家数×5 + 平均涨幅 + 最高连板×0.5 排序）。
      每个题材：
-       - 板块名（hybk）+ 涨停数 + 最高连板
-       - 对应板块指数实时涨跌幅（从 LEADERS/BORDS 反向映射 hybk→pt 码，拉腾讯行情）
-       - 5只强势个股：完全动态，优先取该 hybk 下的涨停股（按 lbc 降序 + lbt 升序 + pct 降序排前 5）
-                     不够 5 只不强补（避免 LEADERS 池固定候选股「全绿错位」复发——参考用户 9/8 反馈） */
+       - 板块名 + 涨停数 + 最高连板 + 板块指数实时涨跌幅
+       - 涨停龙头 1 只（参考：谁在领涨封板）
+       - ★ 跟涨票 5 只：东财 clist 成分股按涨幅降序，剔除已涨停股，取前 5（可介入） */
   var top3 = TOPICS_SCORES.slice(0, 3);
   var top3Html = '';
   if (top3.length) {
-    top3Html = '<div class="secsub accent">前三题材板块 · 5只强势个股</div>';
+    top3Html = '<div class="secsub accent">前三题材板块 · 跟涨票</div>';
     top3.forEach(function (h, idx) {
-      /* 板块指数实时涨跌幅（如能映射到腾讯 pt 码） */
       var ptCode = HYBK_TO_PT[h.hybk];
       var secQ = ptCode ? parseSector({ code: ptCode, name: h.hybk }) : null;
       var secPct = secQ ? sign(secQ.pct) : '—';
       var secCls = secQ ? cls(secQ.chg) : 'flat';
       var lbcTag = h.maxLbc > 1 ? '<span class="sbadge lbc">最高' + h.maxLbc + '连板</span>' : '';
-      /* 个股排序：lbc 降序 → lbt 升序（先封板优先）→ pct 降序 */
-      var stocks = h.ztList.slice().sort(function (a, b) {
-        if ((b.lbc || 1) !== (a.lbc || 1)) return (b.lbc || 1) - (a.lbc || 1);
-        if (a.lbt !== b.lbt) return a.lbt - b.lbt;
-        return (b.pct || 0) - (a.pct || 0);
-      }).slice(0, 5);
-      var stockRows = stocks.map(function (p) {
-        var tag = p.lbc > 1 ? ('<span class="zt-tag">' + p.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
-        var lbt = p.lbt ? ('<span class="lbt">' + formatLbt(p.lbt) + '</span>') : '';
-        return '<div class="zt-row">' + tag + lbt + '<span class="nm">' + esc(p.name) + '</span>' +
-               ' <span class="hy">' + esc(p.code.slice(2)) + '</span>' +
-               ' <b class="z">' + sign(p.pct) + '%</b></div>';
-      }).join('');
-      var emptyHint = stocks.length < 5 ? '<div class="note" style="padding:2px 0 0">该题材仅 ' + stocks.length + ' 只涨停（板块强势度参考用）</div>' : '';
+      /* 涨停龙头：ztList 已按 lbt 升序，第 0 只即最早封板龙头 */
+      var lead = h.ztList[0];
+      var leadRow = lead ?
+        '<div class="zt-row"><span class="zt-tag">涨停</span>' +
+        (lead.lbt ? '<span class="lbt">' + formatLbt(lead.lbt) + '</span>' : '') +
+        '<span class="nm">' + esc(lead.name) + '</span> <span class="hy">龙头</span>' +
+        ' <b class="z">' + sign(lead.pct) + '%</b></div>' : '';
       top3Html +=
         '<div class="srow" style="padding:6px 0 8px">' +
           '<div class="shead">' +
@@ -1221,9 +1293,10 @@ function renderTopicsBody() {
             '</div>' +
           '<div class="schips">' +
             '<span class="sbadge">' + h.count + '家涨停</span>' + lbcTag +
-            (ptCode ? '<span class="chip chip-hot">板块 ' + ptCode.replace('pt0180', 'sw_').replace('pt02', 'gn_') + '</span>' : '') +
           '</div>' +
-          stockRows + emptyHint +
+          leadRow +
+          '<div class="ft-hint">跟涨票（未涨停·可介入）</div>' +
+          '<div id="ft-' + idx + '" data-hybk="' + esc(h.hybk) + '"><div class="note">加载跟涨票…</div></div>' +
         '</div>';
     });
   }
@@ -1238,6 +1311,27 @@ function renderTopicsBody() {
       var hy = p.hybk ? '<span class="hy">' + esc(p.hybk) + '</span>' : '';
       return '<div class="zt-row">' + lbcTag + lbt + '<span class="nm">' + esc(p.name) + '</span> ' + hy + ' <b class="z">' + sign(p.pct) + '%</b></div>';
     }).join('');
+
+  /* 异步填充前三题材的「跟涨票」（东财 clist 成分股，剔除涨停股） */
+  if (top3.length) {
+    loadEmBoardMap(function () {
+      top3.forEach(function (h, idx) {
+        fetchFollowStocks(h.hybk, function (list) {
+          var box = document.getElementById('ft-' + idx);
+          if (!box) return;
+          if (!list || !list.length) {
+            box.innerHTML = '<div class="note">暂无未涨停的跟涨票（该题材成分股多已封板或数据未取到）</div>';
+            return;
+          }
+          box.innerHTML = list.map(function (p) {
+            return '<div class="zt-row ft-row"><span class="ft-tag">跟涨</span>' +
+                   '<span class="nm">' + esc(p.name) + '</span> <span class="hy">' + esc(p.code.slice(2)) + '</span>' +
+                   ' <b class="z">' + sign(p.pct) + '%</b></div>';
+          }).join('');
+        });
+      });
+    });
+  }
 }
 
 function renderSectorsBody(secs) {
