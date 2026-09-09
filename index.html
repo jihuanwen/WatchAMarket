@@ -144,7 +144,14 @@
   .dlg .rowb { display: flex; gap: 8px; margin-top: 6px; }
   .loading { text-align: center; color: var(--tx3); padding: 30px; font-size: 13px; }
 
-  /* 顶部版本徽章（标题旁，显示当前用版本+发布时间） */
+  /* 涨停梯队（独立分组内） */
+.zt-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.zt-row:last-child { border-bottom: none; }
+.zt-row .nm { font-weight: 500; min-width: 60px; }
+.zt-row .hy { font-size: 10px; color: var(--tx3); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg); }
+.zt-row .z { color: #fb7185; font-weight: 600; font-variant-numeric: tabular-nums; margin-left: auto; }
+
+/* 顶部版本徽章（标题旁，显示当前用版本+发布时间） */
   .verbadge {
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 10px; font-weight: 500; line-height: 1;
@@ -916,7 +923,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v20', BUILD_DATE = '2026-09-09 14:20';
+var BUILD_ID = 'v21', BUILD_DATE = '2026-09-09 14:30';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -1129,26 +1136,75 @@ function hotRow(h) {
 function renderTopicsBody() {
   var el = document.getElementById('topicBody');
   if (!el) return;
-  if (!TOPICS_SCORES.length) {
-    var hint = ZT_LIST.length ? '<div class="note">聚合中…</div>' : '<div class="note">加载涨停池…</div>';
-    el.innerHTML = hint;
+  if (!ZT_LIST.length) {
+    el.innerHTML = '<div class="note">' + (TOPICS_SCORES.length ? '加载涨停池…' : '聚合中…') + '</div>';
     return;
   }
-  var tsTxt = TOPICS_AT ? '<span class="vd">· ' + fmtTime(TOPICS_AT) + '</span>' : '';
+  /* 涨停梯队：按涨停时间升序（先涨停=先封板=最强信号），全部涨停股铺开 */
+  var sorted = ZT_LIST.slice().sort(function (a, b) {
+    if (a.lbt !== b.lbt) return a.lbt - b.lbt;
+    return (b.lbc || 1) - (a.lbc || 1);
+  });
+  var tsTxt = TOPICS_AT ? '<span class="vd">· ' + fmtTimeShort(TOPICS_AT) + '</span>' : '';
   el.innerHTML =
-    '<div class="secsub accent">今日题材热点 · 涨停家数排行 ' + tsTxt + '</div>' +
-    TOPICS_SCORES.slice(0, 8).map(hotRow).join('');
+    '<div class="secsub accent">涨停梯队 · 按封板时间 ' + tsTxt + '</div>' +
+    sorted.slice(0, 30).map(function (p) {
+      var lbcTag = p.lbc > 1 ? ('<span class="zt-tag">' + p.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
+      var lbt = p.lbt ? ('<span class="lbt">' + formatLbt(p.lbt) + '</span>') : '';
+      var hy = p.hybk ? '<span class="hy">' + esc(p.hybk) + '</span>' : '';
+      return '<div class="zt-row">' + lbcTag + lbt + '<span class="nm">' + esc(p.name) + '</span> ' + hy + ' <b class="z">' + sign(p.pct) + '%</b></div>';
+    }).join('');
 }
 
 function renderSectorsBody(secs) {
   var el = document.getElementById('secBody');
   if (!el) return;
-  if (!secs.length) { el.innerHTML = '<div class="note">加载中…</div>'; return; }
+  if (!secs.length && !Object.keys(ZT_BY_HYBK).length) { el.innerHTML = '<div class="note">加载中…</div>'; return; }
+
+  /* ===== 第一区：今日题材热点（连板强度板块，hybk 聚合，完全动态）=====
+     强度 = 涨停家数 × 5 + 该板块个股平均涨幅 + 最高连板 × 0.5
+     龙头 = 该 hybk 涨停时间最早（lbt 升序） */
+  var hybkScores = [];
+  for (var hybk in ZT_BY_HYBK) {
+    var arr = ZT_BY_HYBK[hybk].slice();
+    arr.sort(function (a, b) {
+      if (a.lbt !== b.lbt) return a.lbt - b.lbt;
+      return (b.lbc || 1) - (a.lbc || 1);
+    });
+    var maxLbc = 0, sumPct = 0;
+    for (var k = 0; k < arr.length; k++) { sumPct += arr[k].pct || 0; if (arr[k].lbc > maxLbc) maxLbc = arr[k].lbc; }
+    var score = arr.length * 5 + sumPct / arr.length + maxLbc * 0.5;
+    hybkScores.push({ hybk: hybk, ztList: arr, count: arr.length, maxLbc: maxLbc, avgPct: sumPct / arr.length, score: score });
+  }
+  hybkScores.sort(function (a, b) { return b.score - a.score; });
 
   /* 申万 31 一级行业涨幅榜 */
   var ind = secs.slice().sort(function (a, b) { return b.pct - a.pct; });
   var indTop = ind.slice(0, 5);
   var indBot = ind.slice(-3).reverse();
+
+  /* 涨停股 chip（hybk 聚合里用） */
+  function ztChipHtml(item, role) {
+    var roleTag = role ? '<b>' + role + '</b> ' : '';
+    var lbt = item.lbt ? ('<span class="lbt">' + formatLbt(item.lbt) + '</span>') : '';
+    var lbcTag = item.lbc > 1 ? ('<span class="zt-tag">' + item.lbc + '连板</span>') : '<span class="zt-tag">涨停</span>';
+    return '<span class="chip chip-zt">' + roleTag + lbcTag + lbt + '<span class="nm">' + esc(item.name) + '</span> <b class="z">' + sign(item.pct) + '%</b></span>';
+  }
+  function hotRow(h) {
+    var list = h.ztList;
+    var lead = list[0];
+    var mid = null;
+    for (var i = 1; i < list.length; i++) {
+      if (list[i].lbc > (mid ? mid.lbc : 0)) mid = list[i];
+    }
+    if (mid && mid.code === lead.code) mid = list[1] || null;
+    var hots = list.filter(function (x) { return x !== lead && x !== mid; });
+    var head = '<div class="shead"><span class="sname">' + esc(h.hybk) + '</span><span class="sbadge">' + h.count + '家涨停</span>' + (h.maxLbc > 1 ? ' <span class="sbadge lbc">最高' + h.maxLbc + '连板</span>' : '') + '</div>';
+    var chips = ztChipHtml(lead, '龙') +
+                (mid ? ztChipHtml(mid, '中') : '') +
+                (hots.length ? '<span class="chip-sep">｜</span>' + hots.slice(0, 3).map(function (x) { return ztChipHtml(x); }).join('') : '');
+    return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
+  }
 
   /* 普通 row：板块名 + 涨幅 + LEADERS.pool 候选股 */
   function row(s) {
@@ -1183,6 +1239,11 @@ function renderSectorsBody(secs) {
     return '<div class="srow">' + head + '<div class="schips">' + chips + '</div></div>';
   }
 
+  /* ===== 4 个 secsub（持仓相关板块已按用户要求移除）===== */
+  var hotHtml = hybkScores.length
+    ? '<div class="secsub accent">今日题材热点 · 涨停家数排行</div>' +
+      hybkScores.slice(0, 6).map(hotRow).join('')
+    : '';
   var indHtml = indTop.length
     ? '<div class="secsub">申万行业涨幅榜</div>' + indTop.map(row).join('')
     : '';
@@ -1191,6 +1252,7 @@ function renderSectorsBody(secs) {
     : '';
 
   el.innerHTML =
+    hotHtml +
     indHtml +
     botHtml +
     '<div class="secsub">今日涨停板</div>' +
