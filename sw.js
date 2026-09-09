@@ -1,4 +1,4 @@
-var CACHE = 'board-v22';
+var CACHE = 'board-v23';
 var ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {
