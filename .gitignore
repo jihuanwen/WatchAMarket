@@ -1,0 +1,25 @@
+# macOS 系统文件
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志/临时文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node（万一以后加构建步骤）
+node_modules/
+.npm/
+.yarn/
+
+# 不要提交任何含个人持仓成本/真实账号信息的文件
+# 例如：*.local.json、user-secrets.json

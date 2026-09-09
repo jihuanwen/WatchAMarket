@@ -1,0 +1,15 @@
+{
+  "name": "持仓实时看板",
+  "short_name": "持仓看板",
+  "description": "A股持仓实时行情看板，红涨绿跌，5秒刷新",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14161a",
+  "theme_color": "#14161a",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
