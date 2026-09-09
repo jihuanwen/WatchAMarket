@@ -146,6 +146,22 @@
   .dlg .rowb { display: flex; gap: 8px; margin-top: 6px; }
   .loading { text-align: center; color: var(--tx3); padding: 30px; font-size: 13px; }
 
+  /* 模型B：四项原型评分卡片 */
+  .score-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin: 4px 0 8px; }
+  .score-cell { background: rgba(127,127,127,0.06); border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; }
+  .score-cell.top { border-color: rgba(251,191,36,0.5); background: rgba(251,191,36,0.06); }
+  .sc-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; color: var(--tx3); }
+  .sc-head b { color: var(--tx); font-size: 14px; font-weight: 700; }
+  .sc-bar { height: 4px; background: rgba(127,127,127,0.2); border-radius: 2px; margin: 5px 0 4px; overflow: hidden; }
+  .sc-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .fill-xc { background: #38bdf8; }   /* 吸筹 - 蓝 */
+  .fill-xi { background: #fbbf24; }   /* 洗盘 - 金 */
+  .fill-ch { background: #f87171; }   /* 出货 - 红 */
+  .fill-la { background: #34d399; }   /* 启动 - 绿 */
+  .sc-foot { font-size: 10px; color: var(--tx3); margin-top: 1px; }
+  .an-success { padding: 4px 8px; margin: 4px 0; background: rgba(251,191,36,0.10); border-radius: 6px; font-size: 12px; color: var(--tx2); }
+  .an-success b { color: #fbbf24; }
+
   /* 更多菜单 */
   .more-item { padding: 12px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
   .more-item:last-child { border-bottom: none; }
@@ -981,44 +997,272 @@ var WINRATE_MODEL = 'A';
 try { WINRATE_MODEL = localStorage.getItem('board_winrate_model') === 'B' ? 'B' : 'A'; } catch (e) {}
 
 function analyzeWinRateB(rows, curPrice, curPct) {
-  /* 模型B 占位：规则由用户提供后实现，当前返回「待配置」状态。 */
-  var d = { ma5: null, ma10: null, ma20: null, ma60: null, difNow: null, deaNow: null,
-            volRatio: 1, vol3Ratio: 1, upDays: 0, dnDays: 0, longUpShadow: 0, longLowShadow: 0,
-            range20: 0, nearHi20: 0, curPct: curPct };
+  /* ============================================================
+     模型B：A 股量价状态概率模型
+     复刻自 phase_model.py（按 /Users/mj/Documents/ChatGPT/投资/量价状态概率模型.md 评分表）
+     核心：四项原型打分 → 取最高分；最高分 < 80 → "无法判断"
+     历史样本外成功率（2025-09~2026-09，5,169只A股）：
+       吸筹候选 20.85%  vs 基准26.75%（吸筹原型反向，注意！）
+       洗盘候选 21.07%  vs 基准18.44%（弱增益）
+       出货风险 29.19%  vs 基准21.08%（★ 验证力最强）
+       启动候选 10.39%  vs 基准 4.48%（显著增益但绝对命中率仍低）
+     ============================================================ */
+  var n = rows.length;
+  var minRequired = 61;  /* MA60 至少 60 根 + 当日 + RSI14 需要 15 根 */
+
+  /* 历史样本外成功率（来自 md 表格） */
+  var SUCCESS_RATE = { absorption: 0.2085, washout: 0.2107, distribution: 0.2919, ignition: 0.1039 };
+  var BASE_RATE    = { absorption: 0.2675, washout: 0.1844, distribution: 0.2108, ignition: 0.0448 };
+  var STATE_CN     = { absorption: '吸筹候选', washout: '洗盘候选', distribution: '出货风险', ignition: '启动候选' };
+  var STATE_CLS    = { absorption: 'xc', washout: 'xi', distribution: 'ch', ignition: 'la' };
+
+  /* ---- 基础指标计算 ---- */
+  function ma(arr, k) {
+    if (arr.length < k) return null;
+    var s = arr.slice(-k), t = 0;
+    for (var i = 0; i < s.length; i++) t += s[i];
+    return t / s.length;
+  }
+  function avgVol(k) {
+    if (n < k) return 0;
+    var t = 0;
+    for (var i = n - k; i < n; i++) t += (rows[i].vol || 0);
+    return t / k;
+  }
+  function calcRSI(closes, period) {
+    if (closes.length < period + 1) return null;
+    var start = closes.length - period;
+    var gains = 0, losses = 0;
+    for (var i = start; i < closes.length; i++) {
+      var ch = closes[i] - closes[i - 1];
+      if (ch > 0) gains += ch; else losses -= ch;
+    }
+    if (losses === 0) return 100;
+    var rs = (gains / period) / (losses / period);
+    return 100 - 100 / (1 + rs);
+  }
+
+  if (n < minRequired) {
+    return {
+      model: 'B', state: '无法判断', cls: 'wa', confidence: 0,
+      scores: { absorption: 0, washout: 0, distribution: 0, ignition: 0 },
+      successRate: 0, threshold: 80,
+      reasons: ['日线不足 ' + minRequired + ' 根（需 MA60/RSI14/20日涨幅等指标，需要 60+ 日数据）'],
+      suggestion: '请等待数据积累或确认日线拉取正常。',
+      detail: { ma20: null, ma60: null, rsi14: null, volRatio: 1, range20: 0, ret20: 0,
+                distHigh60: 0, break20: 0, closePos: 0, pct: curPct || 0 }
+    };
+  }
+
+  var closes = rows.map(function (r) { return r.close; });
+  var lastClose = closes[n - 1];
+  var cur = (curPrice && curPrice > 0) ? curPrice : lastClose;
+  var pct = (curPct !== null && curPct !== undefined) ? curPct : ((cur / lastClose - 1) * 100);
+
+  var ma20 = ma(closes, 20);
+  var ma60 = ma(closes, 60);
+  var v5 = avgVol(5), v20 = avgVol(20);
+  var volRatio = v20 > 0 ? v5 / v20 : 1;
+  var rsi14 = calcRSI(closes, 14);
+
+  /* 近 20 日：最高/最低/最高收盘 */
+  var hi20h = -Infinity, lo20h = Infinity, hi20c = -Infinity;
+  for (var k20 = n - 20; k20 < n; k20++) {
+    if (rows[k20].high > hi20h) hi20h = rows[k20].high;
+    if (rows[k20].low < lo20h) lo20h = rows[k20].low;
+    if (closes[k20] > hi20c) hi20c = closes[k20];
+  }
+  var range20 = lo20h > 0 ? (hi20h - lo20h) / lo20h * 100 : 0;
+  var break20 = hi20c > 0 ? (cur / hi20c - 1) * 100 : 0;
+
+  /* 20 日涨幅：当日收盘 / 20个交易日前收盘 - 1 */
+  var close20ago = closes[n - 21];
+  var ret20 = close20ago > 0 ? (lastClose / close20ago - 1) * 100 : 0;
+
+  /* 距 60 日最高收盘 */
+  var hi60c = -Infinity;
+  for (var k60 = Math.max(0, n - 60); k60 < n; k60++) {
+    if (closes[k60] > hi60c) hi60c = closes[k60];
+  }
+  var distHigh60 = hi60c > 0 ? (cur / hi60c - 1) * 100 : 0;
+
+  /* 收盘位置（当日 close 在日内区间的位置，百分比 0-100） */
+  var lastRow = rows[n - 1];
+  var lastRange = (lastRow.high - lastRow.low) || 1;
+  var closePos = (lastClose - lastRow.low) / lastRange * 100;
+
+  /* ---- 四项原型打分（严格按 md 评分表）---- */
+  var score = { absorption: 0, washout: 0, distribution: 0, ignition: 0 };
+  var hits = { absorption: [], washout: [], distribution: [], ignition: [] };
+  function add(st, w, txt) { score[st] += w; hits[st].push({ w: w, txt: txt }); }
+
+  /* 吸筹候选（7 条，总分 100） */
+  if (range20 <= 18) add('absorption', 15, '20日振幅 ' + range20.toFixed(1) + '% ≤ 18%（低波动）');
+  if (volRatio >= 0.55 && volRatio <= 1.10) add('absorption', 15, '量比 ' + volRatio.toFixed(2) + ' ∈ [0.55, 1.10]（不活跃放量）');
+  if (rsi14 !== null && rsi14 >= 42 && rsi14 <= 60) add('absorption', 15, 'RSI14 ' + rsi14.toFixed(1) + ' ∈ [42, 60]（中性）');
+  if (ret20 >= -5 && ret20 <= 12) add('absorption', 15, '20日涨幅 ' + ret20.toFixed(1) + '% ∈ [-5%, 12%]');
+  if (distHigh60 >= -20 && distHigh60 <= -3) add('absorption', 15, '距60日高点 ' + distHigh60.toFixed(1) + '% ∈ [-20%, -3%]（非高位）');
+  if (pct >= -2 && pct <= 2) add('absorption', 10, '当日涨跌 ' + pct.toFixed(1) + '% ∈ [-2%, 2%]');
+  if (closePos >= 55) add('absorption', 15, '今日收盘位置 ' + closePos.toFixed(0) + '% ≥ 55%（承接较好）');
+
+  /* 洗盘候选（6 条，总分 100） */
+  var trendUp = ma20 > ma60 && cur > ma60;  /* md 原话：MA20>MA60 且价格未破 MA60 */
+  if (trendUp) add('washout', 35, 'MA20>MA60 且收盘站上 MA60（多头趋势）');
+  if (ret20 >= 5 && ret20 <= 35) add('washout', 15, '20日涨幅 ' + ret20.toFixed(1) + '% ∈ [5%, 35%]');
+  if (pct >= -6 && pct <= -0.5) add('washout', 15, '当日下跌 ' + Math.abs(pct).toFixed(1) + '% ∈ [-6%, -0.5%]');
+  if (volRatio <= 1.10) add('washout', 15, '量比 ' + volRatio.toFixed(2) + ' ≤ 1.10（缩量回调）');
+  if (closePos >= 35) add('washout', 10, '今日收盘位置 ' + closePos.toFixed(0) + '% ≥ 35%');
+  if (distHigh60 >= -18) add('washout', 10, '距60日高点 ' + distHigh60.toFixed(1) + '% ≥ -18%（未严重超涨）');
+
+  /* 出货风险（6 条，总分 100） */
+  if (ret20 >= 15) add('distribution', 20, '20日涨幅 ' + ret20.toFixed(1) + '% ≥ 15%（累计涨幅大）');
+  if (distHigh60 >= -6) add('distribution', 20, '距60日高点 ' + distHigh60.toFixed(1) + '% ≥ -6%（接近高位）');
+  if (volRatio >= 1.40) add('distribution', 20, '量比 ' + volRatio.toFixed(2) + ' ≥ 1.40（明显放量）');
+  if (closePos <= 45) add('distribution', 15, '今日收盘位置 ' + closePos.toFixed(0) + '% ≤ 45%（弱势收盘）');
+  if (rsi14 !== null && rsi14 >= 60) add('distribution', 15, 'RSI14 ' + rsi14.toFixed(1) + ' ≥ 60（超买区）');
+  if (pct >= -6 && pct <= 4) add('distribution', 10, '当日涨跌 ' + pct.toFixed(1) + '% ∈ [-6%, 4%]（放量未大涨）');
+
+  /* 启动候选（7 条，总分 100，但换手率不可得 → 跳过该条，最高 90 分） */
+  if (ma20 > ma60 && cur > ma60) add('ignition', 20, 'MA20>MA60 且收盘高于 MA60');
+  if (break20 >= -1) add('ignition', 20, '距20日高点 ' + break20.toFixed(1) + '% ≥ -1%（突破/接近突破）');
+  if (pct >= 3 && pct <= 12) add('ignition', 15, '当日涨幅 ' + pct.toFixed(1) + '% ∈ [3%, 12%]');
+  if (closePos >= 80) add('ignition', 15, '今日收盘位置 ' + closePos.toFixed(0) + '% ≥ 80%（强势收盘）');
+  if (volRatio >= 1.25 && volRatio <= 4.0) add('ignition', 15, '量比 ' + volRatio.toFixed(2) + ' ∈ [1.25, 4.0]');
+  /* 换手率不可得：跳过"换手率 1.5%–25%：10 分"这一条 */
+  if (ret20 <= 35) add('ignition', 5, '20日涨幅 ' + ret20.toFixed(1) + '% ≤ 35%（未过热）');
+
+  /* ---- 选最高分状态 + 阈值 80 ---- */
+  var THRESHOLD = 80;
+  var order = [
+    { k: 'absorption',   v: score.absorption,   name: '吸筹候选', cls: 'xc' },
+    { k: 'washout',      v: score.washout,      name: '洗盘候选', cls: 'xi' },
+    { k: 'distribution', v: score.distribution, name: '出货风险', cls: 'ch' },
+    { k: 'ignition',     v: score.ignition,     name: '启动候选', cls: 'la' }
+  ].sort(function (a, b) { return b.v - a.v; });
+
+  var top = order[0];
+  var state, confidence, successRate;
+  if (top.v < THRESHOLD) {
+    state = '无法判断';
+    confidence = 0;
+    successRate = 0;
+  } else {
+    state = top.name;
+    confidence = top.v;
+    successRate = SUCCESS_RATE[top.k];
+  }
+
+  /* 操作建议（按 md 输出规则 §4-5：吸筹/洗盘不触发买入，出货降仓，启动严格止损） */
+  var sug = {
+    '吸筹候选': '吸筹原型：低波动+缩量+RSI中性+非高位。注：仅日线量价对"吸筹"的短期验证率（20.85%）反而低于市场基准（26.75%）。建议：不作为单独买入信号；重点观察放量启动点。',
+    '洗盘候选': '洗盘原型：多头趋势+缩量回调。验证率 21.07% 仅略高于基准 18.44%。建议：不恐慌止损，回踩 MA60/MA20 企稳可继续持有。',
+    '出货风险': '出货原型：高位放量+弱势收盘。★ 四个原型中验证力最强（29.19% vs 基准 21.08%）。建议：反弹减仓或按纪律离场，避免追高。',
+    '启动候选': '启动原型：多头趋势+放量突破+强势收盘。绝对命中率仍仅 10.39%。建议：需严格止损（建议 -6%）和小仓位试错，不重仓追高。',
+    '无法判断': '四项原型最高分 < 80 分，证据不足。建议：不据此下单，以盘中确认+关键位纪律为准。'
+  }[state];
+
   return {
-    state: '待配置', cls: 'wa', confidence: 0,
-    reasons: ['模型B 的判定规则尚未提供，暂无法分析。'],
-    suggestion: '模型B 是你自定义的胜率模型。请把你的判定规则告诉 AI，例如：\n· 判定哪几种状态（沿用 洗盘/吸筹/出货/拉升/观望，或自定义如 可买/持有/减仓/清仓）；\n· 每种状态用哪些指标、什么条件触发（可用指标见对话说明）。',
-    detail: d
+    model: 'B',
+    state: state,
+    cls: state === '无法判断' ? 'wa' : top.cls,
+    confidence: confidence,
+    scores: score,
+    successRate: successRate,
+    baseRate: state === '无法判断' ? 0 : BASE_RATE[top.k],
+    threshold: THRESHOLD,
+    reasons: state === '无法判断'
+      ? ['四项原型最高分 ' + top.v + ' < 80（阈值），证据不足，输出"无法判断"']
+      : hits[top.k].filter(function (h) { return h.w > 0; }).map(function (h) { return '[' + h.w + '分] ' + h.txt; }),
+    suggestion: sug,
+    detail: {
+      ma20: ma20, ma60: ma60, rsi14: rsi14,
+      volRatio: volRatio, range20: range20, ret20: ret20,
+      distHigh60: distHigh60, break20: break20,
+      closePos: closePos, pct: pct
+    }
   };
 }
 
 function renderAnalysis(r, stock) {
   var d = r.detail;
   function num(v) { return v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(2); }
+  function numPct(v) { return v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(1) + '%'; }
   var confColor = r.confidence >= 70 ? '#34d399' : (r.confidence >= 50 ? '#fbbf24' : '#c9cdd4');
   var reasonsHtml = r.reasons.map(function (s) {
     return '<div class="an-sig"><span class="k">·</span>' + esc(s) + '</div>';
   }).join('');
-  var metrics =
-    '<div class="an-metric">' +
-      '<span class="m">MA5 <b>' + num(d.ma5) + '</b></span>' +
-      '<span class="m">MA10 <b>' + num(d.ma10) + '</b></span>' +
-      '<span class="m">MA20 <b>' + num(d.ma20) + '</b></span>' +
-      '<span class="m">MA60 <b>' + num(d.ma60) + '</b></span>' +
-      '<span class="m">DIF <b>' + num(d.difNow) + '</b></span>' +
-      '<span class="m">DEA <b>' + num(d.deaNow) + '</b></span>' +
-      '<span class="m">量比5/20 <b>' + d.volRatio.toFixed(2) + '</b></span>' +
-      '<span class="m">20日振幅 <b>' + d.range20.toFixed(0) + '%</b></span>' +
-      '<span class="m">距20日高 <b class="' + cls(d.nearHi20) + '">' + (d.nearHi20 > 0 ? '+' : '') + d.nearHi20.toFixed(1) + '%</b></span>' +
-      '<span class="m">今日 <b class="' + cls(d.curPct || 0) + '">' + sign(d.curPct || 0) + '%</b></span>' +
-    '</div>';
+
+  /* ---------- 模型B 特有：四项原型分数卡片 ---------- */
+  var scoresCard = '';
+  var modelNote = '模型置信度（启发式技术分析，非真实统计胜率）';
+  var successLabel = '';
+  var metrics;
+
+  if (r.model === 'B') {
+    /* 四项原型的样本外成功率（md 文档原表）+ 基准对比 */
+    var sMap = {
+      absorption:   { name: '吸筹', barCls: 'fill-xc', rate: 0.2085, base: '基准 26.75%' },
+      washout:      { name: '洗盘', barCls: 'fill-xi', rate: 0.2107, base: '基准 18.44%' },
+      distribution: { name: '出货', barCls: 'fill-ch', rate: 0.2919, base: '基准 21.08%' },
+      ignition:     { name: '启动', barCls: 'fill-la', rate: 0.1039, base: '基准 4.48%' }
+    };
+    var cells = ['absorption', 'washout', 'distribution', 'ignition'].map(function (k) {
+      var v = (r.scores && r.scores[k]) || 0;
+      var info = sMap[k];
+      var isTop = (r.state !== '无法判断' && r.scores && r.scores[k] === Math.max(r.scores.absorption, r.scores.washout, r.scores.distribution, r.scores.ignition));
+      var cardCls = 'score-cell' + (isTop ? ' top' : '');
+      return '<div class="' + cardCls + '">' +
+        '<div class="sc-head"><span>' + info.name + '</span><b>' + v + '</b></div>' +
+        '<div class="sc-bar"><div class="sc-fill ' + info.barCls + '" style="width:' + Math.min(100, v) + '%"></div></div>' +
+        '<div class="sc-foot">' + (info.rate * 100).toFixed(2) + '% vs ' + info.base + '</div>' +
+      '</div>';
+    }).join('');
+    scoresCard =
+      '<div class="an-sec">四项原型评分（样本外成功率 2025-09~2026-09）</div>' +
+      '<div class="score-grid">' + cells + '</div>' +
+      '<div class="note" style="padding:0 0 4px">注：5,169 只 A 股，存在当前在市股幸存者偏差和历史 ST 状态不完整</div>';
+    modelNote = '模型B 评分（阈值 80 分；最高分即置信度，最高分状态为该原型原型）';
+    if (r.successRate > 0) {
+      successLabel = '<div class="an-success">当前判定的原型：<b>' + esc(r.state) + '</b> · 样本外成功率 ' + (r.successRate * 100).toFixed(2) + '%（基准 ' + ((r.baseRate || 0) * 100).toFixed(2) + '%）</div>';
+    }
+    metrics =
+      '<div class="an-metric">' +
+        '<span class="m">MA20 <b>' + num(d.ma20) + '</b></span>' +
+        '<span class="m">MA60 <b>' + num(d.ma60) + '</b></span>' +
+        '<span class="m">RSI14 <b>' + num(d.rsi14) + '</b></span>' +
+        '<span class="m">量比5/20 <b>' + num(d.volRatio) + '</b></span>' +
+        '<span class="m">20日振幅 <b>' + numPct(d.range20) + '</b></span>' +
+        '<span class="m">20日涨幅 <b class="' + cls(d.ret20) + '">' + sign(d.ret20) + '%</b></span>' +
+        '<span class="m">距60日高 <b class="' + cls(d.distHigh60) + '">' + (d.distHigh60 > 0 ? '+' : '') + d.distHigh60.toFixed(1) + '%</b></span>' +
+        '<span class="m">距20日高 <b class="' + cls(d.break20) + '">' + (d.break20 > 0 ? '+' : '') + d.break20.toFixed(1) + '%</b></span>' +
+        '<span class="m">收盘位置 <b>' + d.closePos.toFixed(0) + '%</b></span>' +
+        '<span class="m">今日 <b class="' + cls(d.pct) + '">' + sign(d.pct) + '%</b></span>' +
+      '</div>';
+  } else {
+    /* 模型A 原有指标 */
+    metrics =
+      '<div class="an-metric">' +
+        '<span class="m">MA5 <b>' + num(d.ma5) + '</b></span>' +
+        '<span class="m">MA10 <b>' + num(d.ma10) + '</b></span>' +
+        '<span class="m">MA20 <b>' + num(d.ma20) + '</b></span>' +
+        '<span class="m">MA60 <b>' + num(d.ma60) + '</b></span>' +
+        '<span class="m">DIF <b>' + num(d.difNow) + '</b></span>' +
+        '<span class="m">DEA <b>' + num(d.deaNow) + '</b></span>' +
+        '<span class="m">量比5/20 <b>' + d.volRatio.toFixed(2) + '</b></span>' +
+        '<span class="m">20日振幅 <b>' + d.range20.toFixed(0) + '%</b></span>' +
+        '<span class="m">距20日高 <b class="' + cls(d.nearHi20) + '">' + (d.nearHi20 > 0 ? '+' : '') + d.nearHi20.toFixed(1) + '%</b></span>' +
+        '<span class="m">今日 <b class="' + cls(d.curPct || 0) + '">' + sign(d.curPct || 0) + '%</b></span>' +
+      '</div>';
+  }
+
   return '<div class="an-state ' + r.cls + '">' + r.state + '</div>' +
          '<div class="an-conf">' +
            '<div class="bar"><div class="fill" style="width:' + r.confidence + '%;background:' + confColor + '"></div></div>' +
            '<span class="num">' + r.confidence + '%</span>' +
          '</div>' +
-         '<div class="note" style="padding:0 0 4px">模型置信度（启发式技术分析，非真实统计胜率）</div>' +
+         '<div class="note" style="padding:0 0 4px">' + modelNote + '</div>' +
+         successLabel +
+         scoresCard +
          '<div class="an-sec">关键信号</div>' + reasonsHtml +
          '<div class="an-sec">关键指标</div>' + metrics +
          '<div class="an-sec">操作建议</div><div class="an-sug">' + esc(r.suggestion) + '</div>';
@@ -1275,7 +1519,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v28', BUILD_DATE = '2026-09-09 16:45';
+var BUILD_ID = 'v29', BUILD_DATE = '2026-09-09 17:30';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
