@@ -1224,7 +1224,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v26', BUILD_DATE = '2026-09-09 16:00';
+var BUILD_ID = 'v27', BUILD_DATE = '2026-09-09 16:20';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -1310,10 +1310,14 @@ function fetchLimitUp() {
 /* ===== 东方财富板块成分股 → 「跟涨票」（2026-09-09 用户要求）=====
    涨停池里全是已涨停的股（买不进去），用户要的是「跟涨票」——同题材板块内
    未涨停、但涨幅居前、跟随板块走强的个股，才有可操作性。
-   数据源：东方财富 push2 clist 接口（JSONP，与 push2ex 涨停池同机制）：
+   数据源：东方财富 clist 接口（JSONP，与 push2ex 涨停池同机制）：
      - 板块列表接口  fs=m:90+t:2(行业) / m:90+t:3(概念) → f12=BK码 f14=板块名
      - 成分股接口    fs=b:BK码 → f12=6位代码 f14=名称 f2=最新价 f3=涨跌幅(降序)
-   ⚠️ 沙箱 curl 被东财风控拦截，但浏览器端(WebFetch/用户手机)可正常访问。 */
+     - 资金流接口    fid=f62 → f62=主力净流入(元) f184=占比(%) f3=涨跌幅
+   ★ 域名用 push2delay.eastmoney.com（延时行情镜像）：
+     主域名 push2.eastmoney.com 在国内手机/受限网络被墙(HTTP 000 连接失败)，
+     push2delay 是东财官方延时行情镜像，字段完全一致、可正常访问（沙箱实测可达）。
+     代价是行情延时约 15 分钟——资金流/涨幅排序场景可接受。 */
 var EM_BK_MAP = {}, EM_BK_LOADING = false, EM_BK_READY = false, EM_SEQ = 0, EM_FOLLOW = {}, EM_TOP = {}, EM_BK_QUEUE = [];
 
 function mkAcode(c6) {
@@ -1373,8 +1377,8 @@ function loadEmBoardMap(onReady) {
       for (var i = 0; i < q.length; i++) q[i]();
     }
   }
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3+f:!50&fields=f12,f14', function (d) { build(d); fin(); });
 }
 
 function fetchFollowStocks(hybk, onDone) {
@@ -1386,7 +1390,7 @@ function fetchFollowStocks(hybk, onDone) {
     loadEmBoardMap(function () { fetchFollowStocks(hybk, onDone); });
     return;
   }
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=40&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:' + bk + '&fields=f12,f14,f2,f3', function (d) {
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=40&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:' + bk + '&fields=f12,f14,f2,f3', function (d) {
     if (!d || !d.data) { onDone(null); return; }
     var diff = d.data.diff || [];
     var list = [];
@@ -1405,7 +1409,7 @@ function fetchFollowStocks(hybk, onDone) {
 }
 
 /* ★ 板块主力资金流（板块强度区核心，2026-09-09 用户要求：净流入/净流出 + 前排票）
-   数据源：东财 push2 clist 资金流排行，fid=f62（主力净流入），字段：
+   数据源：东财 clist 资金流排行（push2delay 延时行情镜像），fid=f62（主力净流入），字段：
      f12=BK码 f14=板块名 f3=涨跌幅 f62=主力净流入(元) f184=主力净流入占比(%)
    行业(m:90+t:2) + 概念(m:90+t:3) 合并去重，按 f62 降序。 */
 var FUND_FLOW = { inflow: [], outflow: [], at: 0 }, fundSeq = 0;
@@ -1431,14 +1435,14 @@ function fetchFundFlow() {
     FUND_FLOW.at = Date.now();
     renderSectorsBody();                 /* 资金流到位 → 刷新板块强度区 */
   }
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:2+f:!50&fields=f12,f14,f3,f62,f184', function (d) { collect(d); fin(); });
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:3+f:!50&fields=f12,f14,f3,f62,f184', function (d) { collect(d); fin(); });
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:2+f:!50&fields=f12,f14,f3,f62,f184', function (d) { collect(d); fin(); });
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:3+f:!50&fields=f12,f14,f3,f62,f184', function (d) { collect(d); fin(); });
 }
 
 /* 某板块「前排票」：成分股按涨幅降序取前 5，涨停/连板标注（用于资金流板块点击展开） */
 function fetchBoardTopStocks(bk, onDone) {
   if (EM_TOP[bk]) { onDone(EM_TOP[bk]); return; }
-  emJsonp('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:' + bk + '&fields=f12,f14,f3', function (d) {
+  emJsonp('https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:' + bk + '&fields=f12,f14,f3', function (d) {
     if (!d || !d.data) { onDone(null); return; }
     var diff = d.data.diff || [];
     var list = [];
