@@ -171,6 +171,7 @@
   .more-label { font-size: 13px; font-weight: 600; margin-bottom: 9px; }
   .model-sel { display: flex; gap: 8px; }
   .model-btn { flex: 1; }
+  .model-btn.locked { opacity: .45; }
   .sync-state { float: right; font-size: 11px; color: var(--tx3); margin-right: 8px; font-weight: 400; }
   .sync-state.on { color: var(--dn); }
   .model-tag {
@@ -459,6 +460,7 @@
       </div>
       <div class="hint" id="mHint"></div>
     </div>
+    <div class="more-item" id="mRedeem">激活策略模型 <span id="mRedeemState" class="sync-state"></span><span class="more-arrow">›</span></div>
     <div class="rowb"><button id="mClose">关闭</button></div>
   </div>
 </div>
@@ -2312,7 +2314,7 @@ function renderInputs() {
 }
 /* 更多菜单：成本&关键位 + 胜率模型方案切换 */
 var moreMask = document.getElementById('moreMask');
-document.getElementById('bM').onclick = function () { renderModelSel(); renderSyncState(); moreMask.className = 'mask show'; };
+document.getElementById('bM').onclick = function () { renderModelSel(); renderSyncState(); renderRedeemState(); moreMask.className = 'mask show'; };
 document.getElementById('mClose').onclick = function () { moreMask.className = 'mask'; };
 moreMask.onclick = function (e) { if (e.target === moreMask) moreMask.className = 'mask'; };
 document.getElementById('mCost').onclick = function () { moreMask.className = 'mask'; renderInputs(); mask.className = 'mask show'; };
@@ -2324,9 +2326,28 @@ function renderSyncState() {
   var el = document.getElementById('mSyncState');
   if (!el) return;
   if (!cbEnv()) { el.textContent = '未开启'; el.className = 'sync-state'; }
-  else if (CB.enabled) { el.textContent = '已同步'; el.className = 'sync-state on'; }
+  else if (CB.enabled) { el.textContent = CB.role === 'admin' ? '管理员' : '已同步'; el.className = 'sync-state on'; }
   else { el.textContent = '未登录'; el.className = 'sync-state'; }
 }
+
+/* 策略激活状态 + 兑换入口 */
+function renderRedeemState() {
+  var el = document.getElementById('mRedeemState');
+  if (!el) return;
+  if (!CB.enabled) { el.textContent = '未启用同步'; el.className = 'sync-state'; }
+  else if (CB.role === 'admin') { el.textContent = '管理员·全解锁'; el.className = 'sync-state on'; }
+  else if (CB.strategies && CB.strategies.length) { el.textContent = '已激活 ' + CB.strategies.join('/'); el.className = 'sync-state on'; }
+  else { el.textContent = '未激活'; el.className = 'sync-state'; }
+}
+document.getElementById('mRedeem').onclick = function () {
+  if (!CB.enabled) { alert('需先配置环境 ID 并登录，才能激活策略模型。'); return; }
+  var v = prompt('输入策略激活码');
+  if (!v || !String(v).trim()) return;
+  cbRedeemStrategy(String(v).trim(), function (ok, m) {
+    alert(String(m));
+    if (ok) { renderModelSel(); renderRedeemState(); }
+  });
+};
 document.getElementById('mSync').onclick = function () {
   var v = prompt('CloudBase 环境 ID\n（留空并确定 = 关闭云同步）', cbEnv());
   if (v === null) return;
@@ -2339,17 +2360,41 @@ document.getElementById('mA').onclick = function () { setModel('A'); };
 document.getElementById('mB').onclick = function () { setModel('B'); };
 
 function setModel(m) {
+  if (!canUseStrategy(m)) {
+    alert('模型' + m + ' 尚未激活。\n请在下方「激活策略模型」中输入激活码。');
+    return;
+  }
   WINRATE_MODEL = m;
   try { localStorage.setItem('board_winrate_model', m); } catch (e) {}
   try { if (typeof cbPush === 'function') cbPush(); } catch (e) {}
   renderModelSel();
 }
 function renderModelSel() {
-  document.getElementById('mA').className = 'model-btn' + (WINRATE_MODEL === 'A' ? ' on' : '');
-  document.getElementById('mB').className = 'model-btn' + (WINRATE_MODEL === 'B' ? ' on' : '');
-  document.getElementById('mHint').textContent = WINRATE_MODEL === 'B'
-    ? '模型B：自定义规则（未配置，请在对话中提供规则）'
-    : '模型A：AI 启发式（量能+均线+MACD+形态打分）';
+  var aOk = canUseStrategy('A'), bOk = canUseStrategy('B');
+  var mA = document.getElementById('mA'), mB = document.getElementById('mB');
+  var hint = document.getElementById('mHint');
+  if (mA) {
+    mA.className = 'model-btn' + ((WINRATE_MODEL === 'A' && aOk) ? ' on' : '') + (aOk ? '' : ' locked');
+    mA.textContent = '模型A' + (aOk ? '' : ' · 未激活');
+  }
+  if (mB) {
+    mB.className = 'model-btn' + ((WINRATE_MODEL === 'B' && bOk) ? ' on' : '') + (bOk ? '' : ' locked');
+    mB.textContent = '模型B' + (bOk ? '' : ' · 未激活');
+  }
+  if (!hint) return;
+  if (!hasAnyStrategy()) {
+    hint.textContent = CB.role === 'admin'
+      ? '管理员已解锁全部策略'
+      : '策略模型需激活码解锁，请在下方「激活策略模型」中输入';
+  } else if (WINRATE_MODEL === 'B') {
+    hint.textContent = bOk
+      ? '模型B：量价状态概率模型（吸筹/洗盘/出货/启动，阈值 80）'
+      : '模型B 未激活，可切换到模型A，或输入激活码解锁';
+  } else {
+    hint.textContent = aOk
+      ? '模型A：AI 启发式（量能+均线+MACD+形态打分）'
+      : '模型A 未激活，可切换到模型B，或输入激活码解锁';
+  }
 }
 document.getElementById('cCancel').onclick = function () { mask.className = 'mask'; };
 document.getElementById('cSave').onclick = function () {
@@ -2551,7 +2596,20 @@ for (var gi = 0; gi < grpHeads.length; gi++) {
 
 /* CloudBase 运行时状态。★ 必须声明在 startAuth() 调用之前：
    startAuth 在下方同步执行，若 CB 声明在其后，会因 var 提升而拿到 undefined 报错。 */
-var CB = { app: null, db: null, uid: null, enabled: false, timer: null, pushing: false };
+var CB = {
+  app: null, db: null, uid: null, enabled: false, timer: null, pushing: false,
+  role: 'user',        /* 'admin' | 'user' */
+  strategies: [],      /* 已激活策略模型，如 ['A','B'] */
+  username: ''
+};
+
+/* 策略模型权限：管理员全开；未启用云同步时不限制（保持纯本地用户的旧行为，不误伤） */
+function canUseStrategy(s) {
+  if (!CB.enabled) return true;
+  if (CB.role === 'admin') return true;
+  return CB.strategies.indexOf(s) > -1;
+}
+function hasAnyStrategy() { return canUseStrategy('A') || canUseStrategy('B'); }
 
 /* 启动看板：账号流程就绪后调用（未配置 CloudBase 时会立即调用） */
 function bootBoard() {
@@ -2640,6 +2698,10 @@ function applyRemote(d) {
     if (d.cost && typeof d.cost === 'object') { COST = d.cost; localStorage.setItem('board_cost', JSON.stringify(COST)); }
     if (d.keys && typeof d.keys === 'object') { USER_KEYS = d.keys; localStorage.setItem('board_keys', JSON.stringify(USER_KEYS)); }
     if (d.model === 'A' || d.model === 'B') { WINRATE_MODEL = d.model; localStorage.setItem('board_winrate_model', d.model); }
+    /* 角色与已激活策略一律以云端为准 */
+    if (d.role === 'admin' || d.role === 'user') CB.role = d.role;
+    if (Array.isArray(d.strategies)) CB.strategies = d.strategies;
+    if (d.username) CB.username = String(d.username);
     cbSyncAt(d.updatedAt || Date.now());
   } catch (e) {}
 }
@@ -2652,7 +2714,11 @@ function cbPush() {
     if (CB.pushing) return;
     CB.pushing = true;
     var t = Date.now();
-    var payload = { stocks: STOCKS, cost: COST, keys: USER_KEYS, model: WINRATE_MODEL, updatedAt: t };
+    var payload = {
+      stocks: STOCKS, cost: COST, keys: USER_KEYS, model: WINRATE_MODEL,
+      role: CB.role, strategies: CB.strategies, username: CB.username,
+      updatedAt: t
+    };
     Promise.resolve(CB.db.collection('user_data').doc(CB.uid).set(payload)).then(function () {
       CB.pushing = false; cbSyncAt(t);
     }).catch(function () { CB.pushing = false; });
@@ -2702,6 +2768,44 @@ function cbMarkCode(doc, username) {
       .update({ used: true, usedBy: String(username || ''), usedAt: Date.now() })
     ).catch(function () {});
   } catch (e) {}
+}
+
+/* 策略激活码兑换：校验 strategy_codes → 加入已激活列表 → 上传云端。
+   该集合权限同样需「所有用户可读」；标记已用无写权限时静默跳过。 */
+function cbRedeemStrategy(code, cb) {
+  if (!CB.db) { cb(false, '未连接云端'); return; }
+  if (CB.role === 'admin') { cb(false, '管理员已拥有全部策略，无需激活'); return; }
+  var t = setTimeout(function () { cb(false, '校验超时，检查网络'); }, 10000);
+  Promise.resolve(CB.db.collection('strategy_codes').where({ code: String(code) }).get())
+    .then(function (res) {
+      clearTimeout(t);
+      var list = res && res.data;
+      if (!list || !list.length) { cb(false, '激活码无效'); return; }
+      var doc = list[0];
+      if (doc.used) { cb(false, '激活码已被使用'); return; }
+      var s = doc.strategy ? String(doc.strategy).toUpperCase() : '';
+      if (s !== 'A' && s !== 'B') { cb(false, '激活码未绑定有效策略（strategy 应为 A 或 B）'); return; }
+      if (CB.strategies.indexOf(s) > -1) { cb(false, '模型' + s + ' 已激活过了'); return; }
+      CB.strategies.push(s);
+      try {
+        Promise.resolve(CB.db.collection('strategy_codes').doc(doc._id)
+          .update({ used: true, usedBy: CB.uid || '', usedAt: Date.now() })
+        ).catch(function () {});
+      } catch (e) {}
+      cbPush();
+      cb(true, '已激活模型' + s);
+    })
+    .catch(function (e) {
+      clearTimeout(t);
+      var m = (e && e.message) || '';
+      if (m.indexOf('collection') > -1 || m.indexOf('not exist') > -1 || m.indexOf('不存在') > -1) {
+        cb(false, '云端缺少 strategy_codes 集合，请先在控制台创建');
+      } else if (m.indexOf('permission') > -1 || m.indexOf('权限') > -1 || m.indexOf('PERMISSION_DENIED') > -1) {
+        cb(false, 'strategy_codes 权限不足，需设为「所有用户可读」');
+      } else {
+        cb(false, '激活失败：' + (m || '未知错误'));
+      }
+    });
 }
 
 /* 登录成功后：拉云端 → 合并 → 启动看板（拉失败也照常启动） */
@@ -2767,6 +2871,9 @@ function bindAuthUI(boot, goLocal) {
         if (!ok) { if (msg) msg.textContent = String(docOrErr); return; }
         if (msg) msg.textContent = '注册中…';
         tryLogin(uu, pp, true, boot, function () {
+          /* 注册成功：激活码的 type 决定角色（admin / user），随后写入云端 */
+          CB.role = (docOrErr && docOrErr.type === 'admin') ? 'admin' : 'user';
+          CB.username = uu;
           cbMarkCode(docOrErr, uu);      /* 标记已用，无写权限时静默跳过 */
         }, function (e2) {
           if (msg) msg.textContent = e2 ? String(e2) : '失败，请重试';
