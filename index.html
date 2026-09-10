@@ -171,6 +171,8 @@
   .more-label { font-size: 13px; font-weight: 600; margin-bottom: 9px; }
   .model-sel { display: flex; gap: 8px; }
   .model-btn { flex: 1; }
+  .sync-state { float: right; font-size: 11px; color: var(--tx3); margin-right: 8px; font-weight: 400; }
+  .sync-state.on { color: var(--dn); }
   .model-tag {
     display: inline-block; font-size: 10px; font-weight: 700; color: #4ade80;
     background: #1d3a2c; border: 1px solid #22c55e; border-radius: 4px;
@@ -448,6 +450,7 @@
   <div class="dlg">
     <h3>更多</h3>
     <div class="more-item" id="mCost">成本&关键位 <span class="more-arrow">›</span></div>
+    <div class="more-item" id="mSync">云同步 / 账号 <span id="mSyncState" class="sync-state"></span><span class="more-arrow">›</span></div>
     <div class="more-item">
       <div class="more-label">胜率模型方案</div>
       <div class="model-sel">
@@ -2309,10 +2312,29 @@ function renderInputs() {
 }
 /* 更多菜单：成本&关键位 + 胜率模型方案切换 */
 var moreMask = document.getElementById('moreMask');
-document.getElementById('bM').onclick = function () { renderModelSel(); moreMask.className = 'mask show'; };
+document.getElementById('bM').onclick = function () { renderModelSel(); renderSyncState(); moreMask.className = 'mask show'; };
 document.getElementById('mClose').onclick = function () { moreMask.className = 'mask'; };
 moreMask.onclick = function (e) { if (e.target === moreMask) moreMask.className = 'mask'; };
 document.getElementById('mCost').onclick = function () { moreMask.className = 'mask'; renderInputs(); mask.className = 'mask show'; };
+
+/* 云同步入口：配置环境 ID / 查看同步状态。
+   必须放在「更多」菜单里——未配置环境 ID 时登录页不显示，
+   若只在登录页提供入口，用户将永远进不去（这是个死循环）。 */
+function renderSyncState() {
+  var el = document.getElementById('mSyncState');
+  if (!el) return;
+  if (!cbEnv()) { el.textContent = '未开启'; el.className = 'sync-state'; }
+  else if (CB.enabled) { el.textContent = '已同步'; el.className = 'sync-state on'; }
+  else { el.textContent = '未登录'; el.className = 'sync-state'; }
+}
+document.getElementById('mSync').onclick = function () {
+  var v = prompt('CloudBase 环境 ID\n（留空并确定 = 关闭云同步）', cbEnv());
+  if (v === null) return;
+  cbSetEnv(v);
+  if (String(v).trim()) alert('已保存。重新打开看板后会出现登录页。');
+  else alert('已关闭云同步，重新打开后恢复纯本地模式。');
+  renderSyncState();
+};
 document.getElementById('mA').onclick = function () { setModel('A'); };
 document.getElementById('mB').onclick = function () { setModel('B'); };
 
@@ -2540,6 +2562,14 @@ function bootBoard() {
   scheduleKeys();
   renderVerBadge();   // 标题旁版本徽章（首屏即显示）
 }
+
+/* 支持 ?env=xxx-123456 直接带环境 ID 打开，省去手动粘贴（首次部署时用一次即可） */
+(function () {
+  try {
+    var mm = String(location.search || '').match(/[?&]env=([^&#]+)/);
+    if (mm && mm[1]) cbSetEnv(decodeURIComponent(mm[1]));
+  } catch (e) {}
+})();
 
 /* 先走账号体系：有环境 ID 才显示登录页，否则直接以纯本地模式启动 */
 startAuth(bootBoard);
