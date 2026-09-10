@@ -1571,7 +1571,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v34', BUILD_DATE = '2026-09-10 16:55';
+var BUILD_ID = 'v35', BUILD_DATE = '2026-09-10 18:20';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -2651,12 +2651,25 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ================= 账号体系 · CloudBase（可选功能） =================
-   设计红线：SDK 加载失败 / 环境 ID 填错 / 网络超时 / 数据库报错 —— 任何一步出问题
-   都降级为「纯本地模式」照常启动看板，绝不允许阻塞启动造成白屏。
-   同步内容：board_stocks（持仓）、board_cost（成本价）、board_keys（关键位）、
-             board_winrate_model（模型 A/B）                                  */
-var DEFAULT_CB_ENV = 'market-a-d7gejrs7t89064ea2';   /* 内置云环境，留空则纯本地 */
+/* ================= 账号体系 · 云函数 HTTP 后端（可选功能） =================
+   架构：CloudBase 云函数 `board` → HTTP 访问服务 → 浏览器直接 fetch 调用。
+
+   🚫 为什么不用 CloudBase 身份认证（2026-09-10 实测结论）：
+      它明确禁止「用户名 + 密码」注册
+      （POST /auth/v1/signup {username,password} → UNIMPLEMENTED:
+       "you can not signup just by username and password"），
+      必须先用手机验证码/邮箱验证码注册再绑定用户名；
+      而本环境 EmailLogin=false、PhoneNumberLogin=false、AnonymousLogin=false，
+      用户名密码登录虽为 true 却注册不了 —— 死结。
+      ⇒ 自建账号体系：密码哈希只存服务端（云函数），激活码由服务端强制校验，
+        前端只持一个不透明 token。
+
+   设计红线：任何一步失败都降级为「纯本地模式」照常启动，绝不白屏。
+   同步内容：board_stocks 持仓 / board_cost 成本价 / board_keys 关键位 /
+             board_winrate_model 模型 A·B                                      */
+
+var DEFAULT_CB_ENV = 'market-a-d7gejrs7t89064ea2';   /* 内置云环境；清空则纯本地 */
+
 function cbEnv() {
   try {
     var v = localStorage.getItem('board_cb_env');
@@ -2665,34 +2678,48 @@ function cbEnv() {
   } catch (e) { return DEFAULT_CB_ENV; }
 }
 function cbSetEnv(v) { try { localStorage.setItem('board_cb_env', String(v || '').trim()); } catch (e) {} }
+
+/* 后端地址：{环境ID}.service.tcloudbase.com/board（云函数的 HTTP 访问服务） */
+function cbEndpoint() {
+  var e = cbEnv();
+  return e ? ('https://' + e + '.service.tcloudbase.com/board') : '';
+}
 function cbSyncAt(v) {
   try {
     if (v === undefined) return parseInt(localStorage.getItem('board_sync_at') || '0', 10) || 0;
     localStorage.setItem('board_sync_at', String(v));
   } catch (e) { return 0; }
 }
+function cbToken() { try { return localStorage.getItem('board_token') || ''; } catch (e) { return ''; } }
+function cbSetToken(t) {
+  try { if (t) localStorage.setItem('board_token', String(t)); else localStorage.removeItem('board_token'); } catch (e) {}
+}
 function cbMask() { return document.getElementById('authMask'); }
 function cbHide() { var m = cbMask(); if (m) m.classList.add('gone'); }
 function cbShow() { var m = cbMask(); if (m) m.classList.remove('gone'); }
 
-/* 动态加载 SDK：主 CDN 超时/失败自动换备选，全失败返回 false */
-function cbLoadSdk(done) {
-  if (window.cloudbase) { done(true); return; }
-  var urls = [
-    'https://static.cloudbase.net/cloudbase-js-sdk/2.7.1/cloudbase.full.js',
-    'https://unpkg.com/@cloudbase/js-sdk@2.7.1/dist/cloudbase.full.js'
-  ];
-  var i = 0;
-  (function next() {
-    if (i >= urls.length) { done(false); return; }
-    var s = document.createElement('script'), fin = false;
-    var url = urls[i++];          /* 先取址再递增，不依赖 setTimeout 的异步语义 */
-    var to = setTimeout(function () { if (!fin) { fin = true; next(); } }, 6000);
-    s.src = url;
-    s.onload  = function () { if (!fin) { fin = true; clearTimeout(to); done(!!window.cloudbase); } };
-    s.onerror = function () { if (!fin) { fin = true; clearTimeout(to); next(); } };
-    document.head.appendChild(s);
-  })();
+/* 统一请求：POST JSON + 超时。失败抛错，由调用方决定怎么降级 */
+function cbCall(payload, timeoutMs) {
+  var ep = cbEndpoint();
+  if (!ep) return Promise.reject(new Error('未配置环境 ID'));
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var to = setTimeout(function () { try { if (ctl) ctl.abort(); } catch (e) {} }, timeoutMs || 12000);
+  var opt = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {})
+  };
+  if (ctl) opt.signal = ctl.signal;
+  return fetch(ep, opt).then(function (r) {
+    clearTimeout(to);
+    return r.json();
+  }).then(function (j) {
+    if (!j) throw new Error('服务无响应');
+    return j;
+  }).catch(function (e) {
+    clearTimeout(to);
+    throw e;
+  });
 }
 
 /* 云端数据 → 本地（仅在云端比本地新时执行） */
@@ -2705,147 +2732,70 @@ function applyRemote(d) {
     if (d.cost && typeof d.cost === 'object') { COST = d.cost; localStorage.setItem('board_cost', JSON.stringify(COST)); }
     if (d.keys && typeof d.keys === 'object') { USER_KEYS = d.keys; localStorage.setItem('board_keys', JSON.stringify(USER_KEYS)); }
     if (d.model === 'A' || d.model === 'B') { WINRATE_MODEL = d.model; localStorage.setItem('board_winrate_model', d.model); }
-    /* 角色与已激活策略一律以云端为准 */
-    if (d.role === 'admin' || d.role === 'user') CB.role = d.role;
-    if (Array.isArray(d.strategies)) CB.strategies = d.strategies;
-    if (d.username) CB.username = String(d.username);
-    cbSyncAt(d.updatedAt || Date.now());
+    cbSyncAt(d.updated_at || Date.now());
   } catch (e) {}
 }
 
 /* 本地 → 云端（1.5 秒防抖，避免频繁改动打爆请求量） */
 function cbPush() {
-  if (!CB.enabled || !CB.uid || !CB.db) return;
+  if (!CB.enabled || !cbToken()) return;
   clearTimeout(CB.timer);
   CB.timer = setTimeout(function () {
     if (CB.pushing) return;
     CB.pushing = true;
-    var t = Date.now();
-    var payload = {
-      stocks: STOCKS, cost: COST, keys: USER_KEYS, model: WINRATE_MODEL,
-      role: CB.role, strategies: CB.strategies, username: CB.username,
-      updatedAt: t
-    };
-    Promise.resolve(CB.db.collection('user_data').doc(CB.uid).set(payload)).then(function () {
-      CB.pushing = false; cbSyncAt(t);
+    cbCall({
+      action: 'push', token: cbToken(),
+      data: { stocks: STOCKS, cost: COST, keys: USER_KEYS, model: WINRATE_MODEL }
+    }, 15000).then(function (r) {
+      CB.pushing = false;
+      if (r && r.ok) cbSyncAt(r.updated_at || Date.now());
     }).catch(function () { CB.pushing = false; });
   }, 1500);
 }
 
 function cbPull() {
-  return Promise.resolve(CB.db.collection('user_data').doc(CB.uid).get()).then(function (res) {
-    var d = res && res.data;
-    if (Array.isArray(d)) return d[0] || null;
-    return d || null;
-  });
+  if (!cbToken()) return Promise.resolve(null);
+  return cbCall({ action: 'pull', token: cbToken() }, 15000);
 }
 
-/* 激活码校验：查 invite_codes 集合，存在且未用过才算通过。
-   该集合需在控制台把权限设为「所有用户可读」，否则未登录时读不到。 */
-function cbCheckCode(code, cb) {
-  if (!CB.db) { cb(false, '未连接云端'); return; }
-  var t = setTimeout(function () { cb(false, '校验超时，检查网络'); }, 10000);
-  Promise.resolve(CB.db.collection('invite_codes').where({ code: String(code) }).get())
-    .then(function (res) {
-      clearTimeout(t);
-      var list = res && res.data;
-      if (!list || !list.length) { cb(false, '激活码无效'); return; }
-      var doc = list[0];
-      if (doc.used) { cb(false, '激活码已被使用'); return; }
-      cb(true, doc);
-    })
-    .catch(function (e) {
-      clearTimeout(t);
-      var m = (e && e.message) || '';
-      if (m.indexOf('collection') > -1 || m.indexOf('not exist') > -1 || m.indexOf('不存在') > -1) {
-        cb(false, '云端缺少 invite_codes 集合，请先在控制台创建');
-      } else if (m.indexOf('permission') > -1 || m.indexOf('权限') > -1 || m.indexOf('PERMISSION_DENIED') > -1) {
-        cb(false, 'invite_codes 权限不足，需设为「所有用户可读」');
-      } else {
-        cb(false, '校验失败：' + (m || '未知错误'));
-      }
-    });
-}
-
-/* 标记激活码已用。数据库权限可能不允许写，失败静默忽略——不影响注册本身 */
-function cbMarkCode(doc, username) {
-  if (!CB.db || !doc || !doc._id) return;
-  try {
-    Promise.resolve(CB.db.collection('invite_codes').doc(doc._id)
-      .update({ used: true, usedBy: String(username || ''), usedAt: Date.now() })
-    ).catch(function () {});
-  } catch (e) {}
-}
-
-/* 策略激活码兑换：校验 strategy_codes → 加入已激活列表 → 上传云端。
-   该集合权限同样需「所有用户可读」；标记已用无写权限时静默跳过。 */
+/* 策略激活码兑换：校验与标记已用全在服务端完成，前端无法伪造 */
 function cbRedeemStrategy(code, cb) {
-  if (!CB.db) { cb(false, '未连接云端'); return; }
-  if (CB.role === 'admin') { cb(false, '管理员已拥有全部策略，无需激活'); return; }
-  var t = setTimeout(function () { cb(false, '校验超时，检查网络'); }, 10000);
-  Promise.resolve(CB.db.collection('strategy_codes').where({ code: String(code) }).get())
-    .then(function (res) {
-      clearTimeout(t);
-      var list = res && res.data;
-      if (!list || !list.length) { cb(false, '激活码无效'); return; }
-      var doc = list[0];
-      if (doc.used) { cb(false, '激活码已被使用'); return; }
-      var s = doc.strategy ? String(doc.strategy).toUpperCase() : '';
-      if (s !== 'A' && s !== 'B') { cb(false, '激活码未绑定有效策略（strategy 应为 A 或 B）'); return; }
-      if (CB.strategies.indexOf(s) > -1) { cb(false, '模型' + s + ' 已激活过了'); return; }
-      CB.strategies.push(s);
-      try {
-        Promise.resolve(CB.db.collection('strategy_codes').doc(doc._id)
-          .update({ used: true, usedBy: CB.uid || '', usedAt: Date.now() })
-        ).catch(function () {});
-      } catch (e) {}
+  if (!CB.enabled) { cb(false, '需先配置环境 ID 并登录，才能激活策略模型。'); return; }
+  cbCall({ action: 'redeem', token: cbToken(), code: String(code) }, 15000).then(function (r) {
+    if (r && r.ok) {
+      CB.strategies = Array.isArray(r.strategies) ? r.strategies : CB.strategies;
       cbPush();
-      cb(true, '已激活模型' + s);
-    })
-    .catch(function (e) {
-      clearTimeout(t);
-      var m = (e && e.message) || '';
-      if (m.indexOf('collection') > -1 || m.indexOf('not exist') > -1 || m.indexOf('不存在') > -1) {
-        cb(false, '云端缺少 strategy_codes 集合，请先在控制台创建');
-      } else if (m.indexOf('permission') > -1 || m.indexOf('权限') > -1 || m.indexOf('PERMISSION_DENIED') > -1) {
-        cb(false, 'strategy_codes 权限不足，需设为「所有用户可读」');
-      } else {
-        cb(false, '激活失败：' + (m || '未知错误'));
-      }
-    });
-}
-
-/* 登录成功后：拉云端 → 合并 → 启动看板（拉失败也照常启动） */
-function afterLogin(uid, boot) {
-  CB.uid = uid; CB.enabled = true;
-  var done = function () { cbHide(); boot(); };
-  cbPull().then(function (d) {
-    if (d && d.updatedAt && d.updatedAt > cbSyncAt()) applyRemote(d);
-    else cbPush();
-    done();
-  }).catch(function () { done(); });
-}
-
-/* 登录 / 注册（先登录，失败则自动注册，一个按钮搞定） */
-function tryLogin(u, p, signup, boot, onOk, onErr) {
-  var auth;
-  try { auth = CB.app.auth({ persistence: 'local' }); }
-  catch (e) { onErr('SDK 初始化失败'); return; }
-  var fn = signup ? 'signUpWithUsernameAndPassword' : 'signInWithUsernameAndPassword';
-  if (typeof auth[fn] !== 'function') { onErr('当前 SDK 不支持用户名密码登录'); return; }
-  var to = setTimeout(function () { onErr('连接超时，检查网络或环境 ID'); }, 10000);
-  Promise.resolve(auth[fn](u, p)).then(function () {
-    clearTimeout(to);
-    Promise.resolve(CB.app.auth({ persistence: 'local' }).getLoginState()).then(function (st) {
-      var usr = st && st.user, uid = usr && (usr.uid || usr.uuid);
-      if (!uid) { onErr('登录成功但取不到 uid'); return; }
-      if (onOk) onOk();
-      afterLogin(uid, boot);
-    }).catch(function () { onErr('登录态读取失败'); });
+      var last = (r.strategies || []).slice(-1)[0] || '';
+      cb(true, '已激活模型' + last);
+      return;
+    }
+    cb(false, (r && r.error) || '激活失败');
   }).catch(function (e) {
-    clearTimeout(to);
-    onErr((e && e.message) || '失败');
+    cb(false, '网络异常：' + ((e && e.message) || '请稍后重试'));
   });
+}
+
+/* 登录 / 注册成功后：拉云端 → 合并 → 启动看板（拉取失败也照常启动） */
+function afterLogin(acc, boot) {
+  acc = acc || {};
+  CB.enabled = true;
+  CB.uid = acc.uid || '';
+  CB.role = acc.role === 'admin' ? 'admin' : 'user';
+  CB.strategies = Array.isArray(acc.strategies) ? acc.strategies : [];
+  CB.username = acc.username || '';
+  var finish = function () { cbHide(); boot(); };
+  cbPull().then(function (r) {
+    if (r && r.ok) {
+      if (r.account) {                       /* 角色 / 已激活策略一律以云端为准 */
+        CB.role = r.account.role === 'admin' ? 'admin' : 'user';
+        CB.strategies = Array.isArray(r.account.strategies) ? r.account.strategies : [];
+      }
+      var d = r.data;
+      if (d && d.updated_at && d.updated_at > cbSyncAt()) applyRemote(d);
+      else cbPush();
+    }
+    finish();
+  }).catch(function () { finish(); });
 }
 
 function bindAuthUI(boot, goLocal) {
@@ -2863,48 +2813,59 @@ function bindAuthUI(boot, goLocal) {
       if (info) info.textContent = '已保存：' + String(v).trim() + '（重新打开生效）';
     }
   };
-  if (go) go.onclick = function () {
+  if (!go) return;
+  go.onclick = function () {
     var uu = (u && u.value ? u.value : '').trim();
     var pp = (p && p.value) ? p.value : '';
     var cc = (codeIn && codeIn.value ? codeIn.value : '').trim();
     if (!uu) { if (msg) msg.textContent = '请填用户名'; return; }
     if (pp.length < 8) { if (msg) msg.textContent = '密码至少 8 位'; return; }
     if (msg) msg.textContent = '登录中…';
-    /* 先按老用户登录；失败说明是首次，此时才要求激活码 */
-    tryLogin(uu, pp, false, boot, null, function () {
-      if (!cc) { if (msg) msg.textContent = '首次注册需要填激活码'; return; }
-      if (msg) msg.textContent = '校验激活码…';
-      cbCheckCode(cc, function (ok, docOrErr) {
-        if (!ok) { if (msg) msg.textContent = String(docOrErr); return; }
+
+    /* 先按老用户登录；失败说明是首次 → 要激活码 → 注册。
+       注册时激活码由服务端校验，无效码不会建号。 */
+    cbCall({ action: 'login', username: uu, password: pp }, 15000).then(function (r) {
+      if (r && r.ok) { cbSetToken(r.token); afterLogin(r.account, boot); return; }
+      var code = (r && r.code) || '';
+      if (code === 'BLOCKED') { if (msg) msg.textContent = (r && r.error) || '账号已被限制'; return; }
+      if (code === 'BAD_CRED' || code === 'NEED_INPUT') {
+        if (!cc) { if (msg) msg.textContent = '首次注册需要填激活码'; return; }
         if (msg) msg.textContent = '注册中…';
-        tryLogin(uu, pp, true, boot, function () {
-          /* 注册成功：激活码的 type 决定角色（admin / user），随后写入云端 */
-          CB.role = (docOrErr && docOrErr.type === 'admin') ? 'admin' : 'user';
-          CB.username = uu;
-          cbMarkCode(docOrErr, uu);      /* 标记已用，无写权限时静默跳过 */
-        }, function (e2) {
-          if (msg) msg.textContent = e2 ? String(e2) : '失败，请重试';
+        cbCall({ action: 'register', username: uu, password: pp, code: cc }, 15000).then(function (r2) {
+          if (r2 && r2.ok) {
+            cbSetToken(r2.token);
+            if (msg) msg.textContent = '注册成功，进入看板…';
+            afterLogin(r2.account, boot);
+            return;
+          }
+          if (msg) msg.textContent = (r2 && r2.error) || '注册失败，请重试';
+        }).catch(function (e2) {
+          if (msg) msg.textContent = '网络异常：' + ((e2 && e2.message) || '请稍后重试');
         });
-      });
+        return;
+      }
+      if (msg) msg.textContent = (r && r.error) || '登录失败';
+    }).catch(function (e) {
+      if (msg) msg.textContent = '连不上服务器：' + ((e && e.message) || '请检查网络');
     });
   };
 }
 
 function startAuth(boot) {
   var goLocal = function () { CB.enabled = false; cbHide(); boot(); };
-  var env = cbEnv();
-  if (!env) { goLocal(); return; }              /* 未配置 → 纯本地，不打扰 */
-  cbLoadSdk(function (ok) {
-    if (!ok) { goLocal(); return; }
-    try { CB.app = window.cloudbase.init({ env: env }); CB.db = CB.app.database(); }
-    catch (e) { goLocal(); return; }
-    var auth = null;
-    try { auth = CB.app.auth({ persistence: 'local' }); } catch (e) { goLocal(); return; }
-    Promise.resolve(auth.getLoginState()).then(function (st) {
-      var usr = st && st.user, uid = usr && (usr.uid || usr.uuid);
-      if (uid) { afterLogin(uid, boot); }
-      else { cbShow(); bindAuthUI(boot, goLocal); }
-    }).catch(function () { cbShow(); bindAuthUI(boot, goLocal); });
+  if (!cbEndpoint()) { goLocal(); return; }        /* 未配置 → 纯本地，不打扰 */
+
+  var tk = cbToken();
+  if (!tk) { cbShow(); bindAuthUI(boot, goLocal); return; }
+
+  /* 有 token：先验证是否仍然有效 */
+  cbCall({ action: 'me', token: tk }, 10000).then(function (r) {
+    if (r && r.ok && r.account) { afterLogin(r.account, boot); return; }
+    cbSetToken('');                                /* token 失效 → 回登录页 */
+    cbShow(); bindAuthUI(boot, goLocal);
+  }).catch(function () {
+    /* 网络不通时不锁人：用本地数据启动，保证离线也能看盘 */
+    CB.enabled = false; cbHide(); boot();
   });
 }
 </script>

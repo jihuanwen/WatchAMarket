@@ -1,4 +1,4 @@
-var CACHE = 'board-v34';
+var CACHE = 'board-v35';
 var ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {
@@ -14,11 +14,11 @@ self.addEventListener('activate', function (e) {
 });
 
 // 行情/数据请求一律走网络，不缓存（腾讯行情、K线、搜索、东方财富涨停池）
-// CloudBase SDK / 数据库请求同样放行，避免被缓存卡住导致登录失败
+// 账号后端（云函数 HTTP 访问服务）同样放行，避免被缓存卡住导致登录失败
 self.addEventListener('fetch', function (e) {
   var url = e.request.url;
   if (url.indexOf('gtimg.cn') > -1 || url.indexOf('eastmoney.com') > -1) return;
-  if (url.indexOf('cloudbase.net') > -1 || url.indexOf('unpkg.com') > -1) return;
+  if (url.indexOf('service.tcloudbase.com') > -1) return;
   if (url.indexOf('tcb-api') > -1 || url.indexOf('tencentcloudapi.com') > -1) return;
 
   // 页面（导航请求）：网络优先，保证每次打开都是最新版；网络失败才回退缓存
