@@ -1571,7 +1571,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v29', BUILD_DATE = '2026-09-09 17:30';
+var BUILD_ID = 'v34', BUILD_DATE = '2026-09-10 16:55';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -2656,7 +2656,14 @@ if ('serviceWorker' in navigator) {
    都降级为「纯本地模式」照常启动看板，绝不允许阻塞启动造成白屏。
    同步内容：board_stocks（持仓）、board_cost（成本价）、board_keys（关键位）、
              board_winrate_model（模型 A/B）                                  */
-function cbEnv() { try { return localStorage.getItem('board_cb_env') || ''; } catch (e) { return ''; } }
+var DEFAULT_CB_ENV = 'market-a-d7gejrs7t89064ea2';   /* 内置云环境，留空则纯本地 */
+function cbEnv() {
+  try {
+    var v = localStorage.getItem('board_cb_env');
+    if (v === null) return DEFAULT_CB_ENV;      /* 从未手动设置过 → 用内置默认 */
+    return v;                                    /* 用户手动清空 → 尊重，纯本地 */
+  } catch (e) { return DEFAULT_CB_ENV; }
+}
 function cbSetEnv(v) { try { localStorage.setItem('board_cb_env', String(v || '').trim()); } catch (e) {} }
 function cbSyncAt(v) {
   try {
