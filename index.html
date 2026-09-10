@@ -1571,7 +1571,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v35', BUILD_DATE = '2026-09-10 18:20';
+var BUILD_ID = 'v36', BUILD_DATE = '2026-09-10 18:35';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
@@ -2854,6 +2854,13 @@ function bindAuthUI(boot, goLocal) {
 function startAuth(boot) {
   var goLocal = function () { CB.enabled = false; cbHide(); boot(); };
   if (!cbEndpoint()) { goLocal(); return; }        /* 未配置 → 纯本地，不打扰 */
+  /* ★ CloudBase 网关只给「安全域名白名单」里的 Origin 回 CORS 头。
+     GitHub Pages 域名（*.github.io）体验版加不进白名单 → 在那里跨域必失败，
+     与其让用户卡在一个点不通的登录页上，不如直接以纯本地模式启动。
+     （云同步请用 CloudBase 托管域名，详见 MEMORY / deploy-cloudbase.sh） */
+  try {
+    if (/\.github\.io$/i.test(String(location.hostname || ''))) { goLocal(); return; }
+  } catch (e) {}
 
   var tk = cbToken();
   if (!tk) { cbShow(); bindAuthUI(boot, goLocal); return; }
