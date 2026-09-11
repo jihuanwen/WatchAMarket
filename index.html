@@ -320,6 +320,10 @@
   .deci-reduce .da { color:#fbbf24; }
   .deci-exit   { border-color:#065f46; background:#0e2a20; }
   .deci-exit .da { color:#4ade80; }
+  /* 持仓行内嵌的关键价位（加仓/减仓/止损参考），与详情弹窗一致 */
+  .dclv { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:4px; font-size:11px; color:var(--tx3); font-variant-numeric:tabular-nums; }
+  .dclv .dclv-i { white-space:nowrap; }
+  .dclv .dclv-i b { font-weight:600; margin-left:2px; }
 
   /* ★ 仓位决策明细（胜率模型弹窗内） */
   .dc-wrap { margin-top:16px; padding-top:12px; border-top:2px solid var(--line); }
@@ -463,7 +467,7 @@
     「题材热度」分组显示「前三题材板块的涨停板（龙头+中军+涨停梯队，点击板块行展开跟涨票）+ 涨停梯队折叠按钮（底部）」。板块与资金流为 AI 维护的热门列表（仅观察参考，非买入指令）。<br>
     「开盘至今」识别高开低走 / 低开高走；「超额」= 个股涨跌幅 − 沪指涨跌幅。<br>
     每只「关键位」为 AI 按最新收盘技术形态自动给出的操作建议，可在底部「更多 → 成本&关键位」里修改，留空则恢复默认。<br>
-    点持仓行（除 ×）弹出「胜率模型」+「<b>仓位决策</b>」；仓位决策按六因子（趋势25·MACD20·KDJ15·RSI10·量能15·区间位置15）加权出综合分(0-100)与置信分，给出<b>加仓 / 锁仓 / 减仓 / 清仓</b>四档建议与加减仓/止损参考价，持仓行上有紧凑徽章。<br>
+    点持仓行（除 ×）弹出「胜率模型」+「<b>仓位决策</b>」；仓位决策按六因子（趋势25·MACD20·KDJ15·RSI10·量能15·区间位置15）加权出综合分(0-100)与置信分，给出<b>加仓 / 锁仓 / 减仓 / 清仓</b>四档建议。持仓行已直接显示决策徽章（动作+置信+综合）与<b>关键价位：加仓参考 / 减仓参考 / 止损参考</b>，无需点开弹窗；点持仓行看六因子明细与操作纪律。<br>
     模型方案可在底部「更多」切换：模型A＝AI 启发式（量能+均线+MACD+形态打分），模型B＝自定义（规则待提供）。点行尾 × 移除（持仓只存本机，不上传）。<br>
     添加到主屏幕：Safari 点分享 → 添加到主屏幕；Chrome 菜单 → 添加到主屏幕。之后可像 App 全屏打开。<br>
     仅供个人参考，不构成投资建议。
@@ -1725,12 +1729,23 @@ function renderStocks() {
     if (ek) {
       key = '<div class="keynote"><span class="lb">关键位</span>' + esc(ek) + '</div>';
     }
-    /* ★ 仓位决策徽章：加/锁/减/清 + 置信分（点开弹窗看六因子明细） */
+    /* ★ 仓位决策：动作徽章(加/锁/减/清) + 置信/综合 + 关键价位(加仓/减仓/止损参考) 直接上持仓行，无需点开弹窗 */
     var dec = POS_DEC[x.code];
-    var deci = dec ? ('<div class="deci deci-' + dec.cls + '">' +
-      '<span class="da">' + dec.emoji + ' ' + dec.action + '</span>' +
-      '<span class="dc">置信 ' + dec.confidence + '</span>' +
-      '<span class="ds">综合 ' + dec.score + '</span></div>') : '';
+    var deci = '';
+    if (dec) {
+      var lvAdd = dec.levels.add ? dec.levels.add.toFixed(2) : '—';
+      var lvRed = dec.levels.reduce ? dec.levels.reduce.toFixed(2) : '—';
+      var lvStop = dec.levels.stop ? dec.levels.stop.toFixed(2) : '—';
+      deci = '<div class="deci deci-' + dec.cls + '">' +
+          '<span class="da">' + dec.emoji + ' ' + dec.action + '</span>' +
+          '<span class="dc">置信 ' + dec.confidence + '</span>' +
+          '<span class="ds">综合 ' + dec.score + '</span></div>' +
+        '<div class="dclv">' +
+          '<span class="dclv-i">加仓 <b class="up">' + lvAdd + '</b></span>' +
+          '<span class="dclv-i">减仓 <b class="flat">' + lvRed + '</b></span>' +
+          '<span class="dclv-i">止损 <b class="dn">' + lvStop + '</b></span>' +
+        '</div>';
+    }
     var alertTags = '';
     if (x._alerts && x._alerts.length) {
       alertTags = '<div class="alerts">' + x._alerts.map(function (a) {
@@ -1862,7 +1877,7 @@ function leaderCodes() {
    - 如果 Service Worker 还没拉到新版本（用户从旧缓存打开），徽章显示旧版号
    - 触发整页刷新（location.reload）就能拿到最新版
    - 红色 stale 态 = 当前缓存的 CACHE 已经被服务端废弃（保留机制，作为最后兜底） */
-var BUILD_ID = 'v37', BUILD_DATE = '2026-09-10 19:05';
+var BUILD_ID = 'v38', BUILD_DATE = '2026-09-11 12:10';
 var DATA_AT = 0;          // 持仓行情最新更新时间戳
 var QUOTE_AT = 0;         // 板块指数最新更新时间戳
 function fmtTimeShort(t) {
