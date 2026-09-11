@@ -1,5 +1,5 @@
-var CACHE = 'board-v38';
-var ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
+var CACHE = 'board-v39';
+var ASSETS = ['./', './index.html', './core.js', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }));
